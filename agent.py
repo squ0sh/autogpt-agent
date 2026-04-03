@@ -149,4 +149,4 @@ if __name__ == "__main__":
     print("\nFINAL OUTPUT:\n", output)
 
 if __name__ == "__main__":
-    run_forever()
+    run_once()
