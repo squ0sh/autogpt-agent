@@ -5,8 +5,9 @@ app = Flask(__name__)
 
 @app.route("/")
 def home():
-    return render_template("index.html")
-
+   # return render_template("index.html")
+    return "Home route works"
+	
 @app.route("/run", methods=["POST"])
 def run():
     data = request.json
