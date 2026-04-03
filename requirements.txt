@@ -2,4 +2,4 @@ openai
 python-dotenv
 tiktoken
 colorama
-
+flask
