@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AI Agent Control</title>
+    <style>
+        body {
+            font-family: Arial;
+            background: #0f172a;
+            color: white;
+            text-align: center;
+            padding: 40px;
+        }
+
+        input {
+            width: 60%;
+            padding: 10px;
+            font-size: 16px;
+        }
+
+        button {
+            padding: 12px 20px;
+            font-size: 16px;
+            margin-top: 10px;
+            cursor: pointer;
+        }
+
+        #output {
+            margin-top: 30px;
+            text-align: left;
+            background: #111827;
+            padding: 20px;
+            border-radius: 10px;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>🧠 AI Agent Dashboard</h1>
+
+    <input id="goal" placeholder="Enter your goal..." />
+    <br>
+    <button onclick="runAgent()">Run Agent</button>
+
+    <div id="output">Output will appear here...</div>
+
+    <script>
+        async function runAgent() {
+            const goal = document.getElementById("goal").value;
+
+            document.getElementById("output").innerText = "Running...";
+
+            const res = await fetch('/run', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ goal })
+            });
+
+            const data = await res.json();
+
+            document.getElementById("output").innerText =
+                JSON.stringify(data, null, 2);
+        }
+    </script>
+
+</body>
+</html>

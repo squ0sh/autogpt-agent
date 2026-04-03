@@ -5,10 +5,10 @@ from openai import OpenAI
 # Initialize OpenAI client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# Your agent goal (you can change this anytime)
+# Default goal (can be overridden from UI)
 GOAL = "Create a simple online business idea and validate it"
 
-# In-memory storage (resets on restart)
+# In-memory storage
 memory = []
 
 
@@ -66,7 +66,6 @@ def decide_action(plan):
     try:
         return json.loads(response)
     except:
-        # fallback if model breaks JSON
         return {
             "action": "write",
             "input": response
@@ -101,7 +100,9 @@ def reflect(result):
 # -----------------------
 # 🔁 Main Agent Loop
 # -----------------------
-def run_agent(max_steps=5):
+def run_agent(max_steps=3):
+    steps_output = []
+
     for step in range(max_steps):
         print(f"\n--- Step {step+1} ---")
 
@@ -117,36 +118,45 @@ def run_agent(max_steps=5):
         reflection = reflect(result)
         print("REFLECTION:", reflection)
 
-        memory.append({
+        step_data = {
             "step": step + 1,
             "plan": plan,
             "action": action,
             "result": result,
             "reflection": reflection
-        })
+        }
 
-        # stop early if goal achieved
+        memory.append(step_data)
+        steps_output.append(step_data)
+
         if "goal achieved" in reflection.lower():
             break
 
-    return memory
+    return {
+        "goal": GOAL,
+        "steps": steps_output
+    }
 
 
 # -----------------------
-# 🌐 Run Once (for Flask)
+# 🌐 Run Once (for UI)
 # -----------------------
-def run_once():
-    memory.clear()  # reset each run (optional)
+def run_once(custom_goal=None):
+    global GOAL
+
+    if custom_goal and custom_goal.strip():
+        GOAL = custom_goal
+
+    memory.clear()
+
     result = run_agent(max_steps=3)
-    return result[-1] if result else {}
+
+    return result
 
 
 # -----------------------
-# 🧪 Local Testing Only
+# 🧪 Local Test
 # -----------------------
 if __name__ == "__main__":
     output = run_once()
-    print("\nFINAL OUTPUT:\n", output)
-
-if __name__ == "__main__":
-    run_once()
+    print("\nFINAL OUTPUT:\n", json.dumps(output, indent=2))
