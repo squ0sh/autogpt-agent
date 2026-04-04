@@ -43,33 +43,33 @@ def chat(prompt):
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.5,
-        max_tokens=500,
+        max_tokens=700,
     )
     return response.choices[0].message.content.strip()
 
 
 # -----------------------
-# 🧠 STEP GENERATION (STRICT)
+# 🧠 STEP GENERATION
 # -----------------------
 def generate_plan():
     step_number = len(memory) + 1
 
     prompt = f"""
-You are an execution agent working step-by-step.
+You are an execution agent.
 
 Goal:
 {GOAL}
 
-Previous steps:
-{memory}
+Previous steps (structured progress):
+{json.dumps(memory, indent=2)}
 
 Current step: {step_number}
 
 RULES:
 - ONLY generate Step {step_number}
-- DO NOT generate multiple steps
-- DO NOT summarize the whole plan
-- Each step must move the goal forward
+- Do NOT generate multiple steps
+- Must move the goal forward
+- Be specific and actionable
 
 FORMAT:
 Step {step_number}: <short title>
@@ -83,22 +83,26 @@ Step {step_number}: <short title>
 
 
 # -----------------------
-# 🎯 ACTION SELECTION
+# 🎯 ACTION SELECTION (UPGRADED)
 # -----------------------
 def decide_action(plan):
     prompt = f"""
 Plan:
 {plan}
 
-Choose ONE action:
-- write
-- analyze
-- search
+Choose the BEST action:
+
+- write → create content/file
+- analyze → evaluate something
+- search → research info
+- json → structured data
+
+Make it practical.
 
 Return JSON:
 {{
     "action": "...",
-    "input": "short instruction"
+    "input": "specific instruction"
 }}
 """
 
@@ -118,14 +122,11 @@ def execute_action(action):
     except Exception as e:
         result = f"Tool error: {str(e)}"
 
-    if isinstance(result, str) and "Generated content:" in result:
-        result = result.split(":", 1)[-1].strip()
-
     return result
 
 
 # -----------------------
-# 🔍 REFLECTION (NO FAKE COMPLETION)
+# 🔍 REFLECTION
 # -----------------------
 def reflect(result):
     prompt = f"""
@@ -138,23 +139,23 @@ Result:
 Evaluate progress.
 
 RULES:
-- DO NOT say goal is complete unless it truly is
-- Be critical and realistic
-- Suggest next improvement
+- Be realistic
+- Do NOT say goal complete unless fully done
+- Focus on what was achieved
 
 FORMAT:
 Evaluation:
 <short evaluation>
 
 Next:
-<next step improvement>
+<clear next step>
 """
 
     return chat(prompt)
 
 
 # -----------------------
-# 🧠 GOAL VALIDATION (THE FIX 🔥)
+# 🧠 GOAL VALIDATION (REAL)
 # -----------------------
 def is_goal_complete():
     prompt = f"""
@@ -162,7 +163,7 @@ Goal:
 {GOAL}
 
 Steps taken:
-{memory}
+{json.dumps(memory, indent=2)}
 
 Has the goal been FULLY achieved?
 
@@ -177,7 +178,7 @@ YES or NO
 
 
 # -----------------------
-# 🧠 FINAL ANSWER
+# 🧠 FINAL OUTPUT
 # -----------------------
 def generate_final():
     prompt = f"""
@@ -185,15 +186,15 @@ Goal:
 {GOAL}
 
 Steps completed:
-{memory}
+{json.dumps(memory, indent=2)}
 
-Produce FINAL COMPLETE RESULT.
+Produce FINAL RESULT.
 
 Requirements:
-- Clear
 - Structured
+- Clear
 - Actionable
-- Complete
+- Based on real outputs
 """
 
     return chat(prompt)
@@ -208,7 +209,7 @@ Improve this result:
 
 {final}
 
-Make it clearer, more actionable, and concise.
+Make it clearer, tighter, and more actionable.
 """
 
     return chat(prompt)
@@ -223,14 +224,14 @@ def stop():
 
 
 # -----------------------
-# ⚡ STREAM UTIL
+# ⚡ STREAM SAFE
 # -----------------------
 def safe(text):
     return str(text).replace("\n", "\\n")
 
 
 # -----------------------
-# 🚀 MAIN AGENT LOOP
+# 🚀 MAIN LOOP
 # -----------------------
 def run_agent_stream(goal, max_steps=6):
     global GOAL, memory, RUN_ID, STOP_FLAG
