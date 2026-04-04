@@ -110,8 +110,8 @@
             text = text.replace(/```json[\s\S]*?```/g, "");
             text = text.replace(/Generated content:.*$/gm, "");
 
-            // Convert headers
-            text = text.replace(/###\s*(.*)/g, "<h4>$1</h4>");
+            // Remove duplicate "Step X:"
+            text = text.replace(/Step\s*\d+:\s*/g, "");
 
             const lines = text.split("\n");
 
@@ -130,6 +130,7 @@
                         inList = true;
                         listType = "ol";
                     }
+
                     trimmed = trimmed.replace(/^\d+\.\s*/, "");
                     html += `<li>${trimmed}</li>`;
                 }
@@ -142,6 +143,7 @@
                         inList = true;
                         listType = "ul";
                     }
+
                     trimmed = trimmed.replace(/^[-•]\s*/, "");
                     html += `<li>${trimmed}</li>`;
                 }
@@ -152,7 +154,13 @@
                         inList = false;
                     }
 
-                    if (trimmed !== "") {
+                    // Headers
+                    if (trimmed.startsWith("###")) {
+                        trimmed = trimmed.replace("###", "").trim();
+                        html += `<h4>${trimmed}</h4>`;
+                    }
+
+                    else if (trimmed !== "") {
                         html += `<p>${trimmed}</p>`;
                     }
                 }
