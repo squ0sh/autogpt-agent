@@ -1,21 +1,16 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
     <title>AI Agent Dashboard</title>
 
     <style>
         body {
-            font-family: Arial, sans-serif;
-            background: linear-gradient(to bottom, #0f172a, #1e293b);
+            font-family: Arial;
+            background: #0f172a;
             color: white;
             padding: 40px;
             max-width: 900px;
             margin: auto;
-        }
-
-        h1 {
-            text-align: center;
         }
 
         input {
@@ -23,196 +18,74 @@
             padding: 12px;
             border-radius: 8px;
             border: none;
-            margin-top: 20px;
-            font-size: 16px;
         }
 
         button {
-            margin-top: 15px;
-            padding: 12px 20px;
-            border: none;
+            margin-top: 10px;
+            padding: 12px;
             border-radius: 8px;
-            background: #4f46e5;
-            color: white;
-            font-size: 16px;
+            border: none;
             cursor: pointer;
         }
 
-        button:hover {
-            background: #4338ca;
-        }
+        .run { background: #4f46e5; color: white; }
+        .stop { background: #dc2626; color: white; }
 
         #output {
-            margin-top: 40px;
-        }
-
-        .step-card {
+            margin-top: 30px;
             background: #1e293b;
             padding: 20px;
-            border-radius: 12px;
-            margin-bottom: 20px;
-        }
-
-        .label {
-            color: #60a5fa;
-            font-weight: bold;
-            display: block;
-            margin-bottom: 5px;
-        }
-
-        .section {
-            margin-top: 15px;
-        }
-
-        h2 {
-            margin-top: 30px;
-        }
-
-        h3 {
-            margin-bottom: 10px;
-        }
-
-        h4 {
-            margin-top: 15px;
-            color: #60a5fa;
-        }
-
-        ul, ol {
-            padding-left: 20px;
-            margin-top: 5px;
-        }
-
-        li {
-            margin-bottom: 6px;
-        }
-
-        p {
-            margin: 6px 0;
-            line-height: 1.5;
+            border-radius: 10px;
+            white-space: pre-wrap;
+            height: 450px;
+            overflow-y: auto;
         }
     </style>
 </head>
 
 <body>
 
-    <h1>🧠 AI Agent Dashboard</h1>
+<h1>🧠 AI Agent Dashboard</h1>
 
-    <input id="goal" placeholder="Enter your goal..." />
-    <button onclick="runAgent()">Run Agent</button>
+<input id="goal" placeholder="Enter your goal..." />
 
-    <div id="output"></div>
+<button class="run" onclick="startStream()">Run Agent</button>
+<button class="stop" onclick="stopAgent()">Stop</button>
 
-    <script>
-        function cleanText(text) {
-            if (!text) return "";
+<div id="output"></div>
 
-            // Remove JSON blocks
-            text = text.replace(/```json[\s\S]*?```/g, "");
-            text = text.replace(/Generated content:.*$/gm, "");
+<script>
+let eventSource;
 
-            // Remove duplicate "Step X:"
-            text = text.replace(/Step\s*\d+:\s*/g, "");
+function startStream() {
+    const goal = document.getElementById("goal").value;
+    const output = document.getElementById("output");
 
-            const lines = text.split("\n");
+    if (eventSource) eventSource.close();
 
-            let html = "";
-            let inList = false;
-            let listType = null;
+    output.innerHTML = "⏳ Starting...\n";
 
-            lines.forEach(line => {
-                let trimmed = line.trim();
+    const url = `/run-stream?goal=${encodeURIComponent(goal)}`;
+    eventSource = new EventSource(url);
 
-                // Numbered list
-                if (/^\d+\./.test(trimmed)) {
-                    if (!inList || listType !== "ol") {
-                        if (inList) html += listType === "ul" ? "</ul>" : "</ol>";
-                        html += "<ol>";
-                        inList = true;
-                        listType = "ol";
-                    }
+    eventSource.onmessage = function(event) {
+        output.innerHTML += event.data;
+        output.scrollTop = output.scrollHeight;
+    };
 
-                    trimmed = trimmed.replace(/^\d+\.\s*/, "");
-                    html += `<li>${trimmed}</li>`;
-                }
+    eventSource.onerror = function() {
+        eventSource.close();
+    };
+}
 
-                // Bullet list
-                else if (trimmed.startsWith("-") || trimmed.startsWith("•")) {
-                    if (!inList || listType !== "ul") {
-                        if (inList) html += listType === "ol" ? "</ol>" : "</ul>";
-                        html += "<ul>";
-                        inList = true;
-                        listType = "ul";
-                    }
+function stopAgent() {
+    fetch("/stop", { method: "POST" });
 
-                    trimmed = trimmed.replace(/^[-•]\s*/, "");
-                    html += `<li>${trimmed}</li>`;
-                }
+    if (eventSource) eventSource.close();
 
-                else {
-                    if (inList) {
-                        html += listType === "ol" ? "</ol>" : "</ul>";
-                        inList = false;
-                    }
-
-                    // Headers
-                    if (trimmed.startsWith("###")) {
-                        trimmed = trimmed.replace("###", "").trim();
-                        html += `<h4>${trimmed}</h4>`;
-                    }
-
-                    else if (trimmed !== "") {
-                        html += `<p>${trimmed}</p>`;
-                    }
-                }
-            });
-
-            if (inList) {
-                html += listType === "ol" ? "</ol>" : "</ul>";
-            }
-
-            return html;
-        }
-
-        async function runAgent() {
-            const goal = document.getElementById("goal").value;
-            const outputDiv = document.getElementById("output");
-
-            outputDiv.innerHTML = "⏳ Running agent...";
-
-            const res = await fetch('/run', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ goal })
-            });
-
-            const data = await res.json();
-
-            let html = `
-                <h2>🎯 Goal</h2>
-                <p>${data.goal}</p>
-            `;
-
-            data.steps.forEach(step => {
-                html += `
-                    <div class="step-card">
-                        <h3>Step ${step.step}</h3>
-
-                        <div class="section">
-                            <span class="label">Plan</span>
-                            ${cleanText(step.plan)}
-                        </div>
-
-                        <div class="section">
-                            <span class="label">Reflection</span>
-                            ${cleanText(step.reflection)}
-                        </div>
-                    </div>
-                `;
-            });
-
-            outputDiv.innerHTML = html;
-        }
-    </script>
+    document.getElementById("output").innerHTML += "\n🛑 Stopped.\n";
+}
+</script>
 
 </body>
 </html>
