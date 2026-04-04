@@ -1,38 +1,41 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
     <title>AI Agent Dashboard</title>
+
     <style>
         body {
-            font-family: Arial;
-            background: linear-gradient(135deg, #0f172a, #1e293b);
+            font-family: Arial, sans-serif;
+            background: linear-gradient(to bottom, #0f172a, #1e293b);
             color: white;
-            text-align: center;
             padding: 40px;
+            max-width: 900px;
+            margin: auto;
         }
 
         h1 {
-            margin-bottom: 30px;
+            text-align: center;
         }
 
         input {
-            width: 60%;
+            width: 100%;
             padding: 12px;
-            font-size: 16px;
             border-radius: 8px;
             border: none;
-            outline: none;
+            margin-top: 20px;
+            font-size: 16px;
         }
 
         button {
+            margin-top: 15px;
             padding: 12px 20px;
-            font-size: 16px;
-            margin-top: 10px;
-            cursor: pointer;
-            border-radius: 8px;
             border: none;
+            border-radius: 8px;
             background: #4f46e5;
             color: white;
+            font-size: 16px;
+            cursor: pointer;
         }
 
         button:hover {
@@ -41,50 +44,102 @@
 
         #output {
             margin-top: 40px;
-            text-align: left;
-            max-width: 800px;
-            margin-left: auto;
-            margin-right: auto;
         }
 
         .step-card {
-            background: #1f2937;
+            background: #1e293b;
             padding: 20px;
-            border-radius: 10px;
-            margin-bottom: 25px;
+            border-radius: 12px;
+            margin-bottom: 20px;
         }
 
         .label {
+            color: #60a5fa;
             font-weight: bold;
-            color: #93c5fd;
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .section {
+            margin-top: 15px;
+        }
+
+        h2 {
+            margin-top: 30px;
+        }
+
+        h3 {
+            margin-bottom: 10px;
+        }
+
+        h4 {
+            margin-top: 15px;
+            color: #60a5fa;
+        }
+
+        ul {
+            padding-left: 20px;
+            margin-top: 5px;
+        }
+
+        li {
+            margin-bottom: 6px;
         }
 
         p {
-            line-height: 1.6;
+            margin: 6px 0;
+            line-height: 1.5;
         }
     </style>
 </head>
+
 <body>
 
     <h1>🧠 AI Agent Dashboard</h1>
 
     <input id="goal" placeholder="Enter your goal..." />
-    <br>
     <button onclick="runAgent()">Run Agent</button>
 
-    <div id="output">Output will appear here...</div>
+    <div id="output"></div>
 
     <script>
-        function formatText(text) {
+        function parseTextToHTML(text) {
             if (!text) return "";
 
-            // Convert numbered lists into bullet points
-            text = text.replace(/\d+\.\s/g, "• ");
+            // Convert markdown-style headers
+            text = text.replace(/###\s*(.*)/g, "<h4>$1</h4>");
 
-            // Convert new lines into HTML line breaks
-            text = text.replace(/\n/g, "<br>");
+            // Split into lines
+            const lines = text.split("\n");
 
-            return text;
+            let html = "";
+            let inList = false;
+
+            lines.forEach(line => {
+                const trimmed = line.trim();
+
+                // Bullet points
+                if (trimmed.startsWith("-")) {
+                    if (!inList) {
+                        html += "<ul>";
+                        inList = true;
+                    }
+                    html += `<li>${trimmed.replace("-", "").trim()}</li>`;
+                } else {
+                    if (inList) {
+                        html += "</ul>";
+                        inList = false;
+                    }
+
+                    if (trimmed !== "") {
+                        html += `<p>${trimmed}</p>`;
+                    }
+                }
+            });
+
+            if (inList) html += "</ul>";
+
+            return html;
         }
 
         async function runAgent() {
@@ -103,7 +158,7 @@
 
             let html = `
                 <h2>🎯 Goal</h2>
-                <p>${formatText(data.goal)}</p>
+                <p>${data.goal}</p>
             `;
 
             data.steps.forEach(step => {
@@ -111,20 +166,20 @@
                     <div class="step-card">
                         <h3>Step ${step.step}</h3>
 
-                        <p><span class="label">Plan:</span><br>
-                        ${formatText(step.plan)}</p>
+                        <div class="section">
+                            <span class="label">Plan</span>
+                            ${parseTextToHTML(step.plan)}
+                        </div>
 
-                        <p><span class="label">Action:</span>
-                        ${step.action.action}</p>
+                        <div class="section">
+                            <span class="label">Result</span>
+                            ${parseTextToHTML(step.result)}
+                        </div>
 
-                        <p><span class="label">Input:</span><br>
-                        ${formatText(step.action.input)}</p>
-
-                        <p><span class="label">Result:</span><br>
-                        ${formatText(step.result)}</p>
-
-                        <p><span class="label">Reflection:</span><br>
-                        ${formatText(step.reflection)}</p>
+                        <div class="section">
+                            <span class="label">Reflection</span>
+                            ${parseTextToHTML(step.reflection)}
+                        </div>
                     </div>
                 `;
             });
