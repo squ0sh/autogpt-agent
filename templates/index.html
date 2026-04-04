@@ -77,7 +77,7 @@
             color: #60a5fa;
         }
 
-        ul {
+        ul, ol {
             padding-left: 20px;
             margin-top: 5px;
         }
@@ -103,31 +103,52 @@
     <div id="output"></div>
 
     <script>
-        function parseTextToHTML(text) {
+        function cleanText(text) {
             if (!text) return "";
 
-            // Convert markdown-style headers
+            // Remove JSON blocks
+            text = text.replace(/```json[\s\S]*?```/g, "");
+            text = text.replace(/Generated content:.*$/gm, "");
+
+            // Convert headers
             text = text.replace(/###\s*(.*)/g, "<h4>$1</h4>");
 
-            // Split into lines
             const lines = text.split("\n");
 
             let html = "";
             let inList = false;
+            let listType = null;
 
             lines.forEach(line => {
-                const trimmed = line.trim();
+                let trimmed = line.trim();
 
-                // Bullet points
-                if (trimmed.startsWith("-")) {
-                    if (!inList) {
+                // Numbered list
+                if (/^\d+\./.test(trimmed)) {
+                    if (!inList || listType !== "ol") {
+                        if (inList) html += listType === "ul" ? "</ul>" : "</ol>";
+                        html += "<ol>";
+                        inList = true;
+                        listType = "ol";
+                    }
+                    trimmed = trimmed.replace(/^\d+\.\s*/, "");
+                    html += `<li>${trimmed}</li>`;
+                }
+
+                // Bullet list
+                else if (trimmed.startsWith("-") || trimmed.startsWith("•")) {
+                    if (!inList || listType !== "ul") {
+                        if (inList) html += listType === "ol" ? "</ol>" : "</ul>";
                         html += "<ul>";
                         inList = true;
+                        listType = "ul";
                     }
-                    html += `<li>${trimmed.replace("-", "").trim()}</li>`;
-                } else {
+                    trimmed = trimmed.replace(/^[-•]\s*/, "");
+                    html += `<li>${trimmed}</li>`;
+                }
+
+                else {
                     if (inList) {
-                        html += "</ul>";
+                        html += listType === "ol" ? "</ol>" : "</ul>";
                         inList = false;
                     }
 
@@ -137,7 +158,9 @@
                 }
             });
 
-            if (inList) html += "</ul>";
+            if (inList) {
+                html += listType === "ol" ? "</ol>" : "</ul>";
+            }
 
             return html;
         }
@@ -168,17 +191,12 @@
 
                         <div class="section">
                             <span class="label">Plan</span>
-                            ${parseTextToHTML(step.plan)}
-                        </div>
-
-                        <div class="section">
-                            <span class="label">Result</span>
-                            ${parseTextToHTML(step.result)}
+                            ${cleanText(step.plan)}
                         </div>
 
                         <div class="section">
                             <span class="label">Reflection</span>
-                            ${parseTextToHTML(step.reflection)}
+                            ${cleanText(step.reflection)}
                         </div>
                     </div>
                 `;
