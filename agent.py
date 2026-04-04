@@ -1,108 +1,162 @@
+import json
 import os
 from openai import OpenAI
 
+# Initialize OpenAI client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-running = False
-GOAL = ""
+# Default goal (can be overridden from UI)
+GOAL = "Create a simple online business idea and validate it"
+
+# In-memory storage
 memory = []
 
 
-def stop_agent():
-    global running
-    running = False
-
-
+# -----------------------
+# 🔹 Core Chat Function
+# -----------------------
 def chat(prompt):
     response = client.chat.completions.create(
         model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": "You are a focused, concise AI agent."},
-            {"role": "user", "content": prompt}
-        ],
-        temperature=0.5,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.7,
     )
     return response.choices[0].message.content.strip()
 
 
+# -----------------------
+# 🧠 Planning Step
+# -----------------------
 def generate_plan():
     prompt = f"""
     Goal: {GOAL}
 
-    Previous steps:
+    Previous memory:
     {memory}
 
-    Give the NEXT actionable step only.
-
-    Rules:
-    - Max 5 bullet points
-    - No repetition
-    - Be concise
+    What is the next best step to achieve the goal?
+    Be specific and actionable.
     """
     return chat(prompt)
 
 
+# -----------------------
+# 🎯 Decide Action
+# -----------------------
+def decide_action(plan):
+    prompt = f"""
+    Based on this plan:
+
+    {plan}
+
+    Choose ONE action:
+    - write
+    - analyze
+    - search
+
+    Respond ONLY in valid JSON:
+    {{
+        "action": "...",
+        "input": "..."
+    }}
+    """
+
+    response = chat(prompt)
+
+    try:
+        return json.loads(response)
+    except:
+        return {
+            "action": "write",
+            "input": response
+        }
+
+
+# -----------------------
+# 🛠 Execute Action
+# -----------------------
+def execute_action(action):
+    from tools import run_tool
+    return run_tool(action)
+
+
+# -----------------------
+# 🔍 Reflection Step
+# -----------------------
 def reflect(result):
     prompt = f"""
     Goal: {GOAL}
 
-    Latest result:
+    Result of last action:
     {result}
 
-    Give a short reflection:
-    - What worked
-    - What to do next
+    Did this help achieve the goal?
+    What should be done next differently or better?
+    If the goal is complete, say "GOAL ACHIEVED".
     """
     return chat(prompt)
 
 
-def run_agent_stream(goal):
-    global running, GOAL, memory
+# -----------------------
+# 🔁 Main Agent Loop
+# -----------------------
+def run_agent(max_steps=3):
+    steps_output = []
 
-    running = True
-    GOAL = goal
-    memory = []
+    for step in range(max_steps):
+        print(f"\n--- Step {step+1} ---")
 
-    yield "event: start\ndata: Starting goal...\n\n"
+        plan = generate_plan()
+        print("PLAN:", plan)
 
-    for step in range(1, 6):
-        if not running:
-            yield "event: stop\ndata: Agent stopped\n\n"
-            return
+        action = decide_action(plan)
+        print("ACTION:", action)
 
-        # STEP HEADER
-        yield f"event: step\ndata: {step}\n\n"
+        result = execute_action(action)
+        print("RESULT:", result)
 
-        # PLAN
-        yield "event: status\ndata: Thinking...\n\n"
-        try:
-            plan = generate_plan()
-        except Exception as e:
-            yield f"event: error\ndata: Plan error: {str(e)}\n\n"
-            return
+        reflection = reflect(result)
+        print("REFLECTION:", reflection)
 
-        yield f"event: plan\ndata: {plan}\n\n"
-
-        # RESULT
-        result = f"Executed step {step} based on plan"
-        yield f"event: result\ndata: {result}\n\n"
-
-        # REFLECTION
-        yield "event: status\ndata: Reflecting...\n\n"
-        try:
-            reflection = reflect(result)
-        except Exception as e:
-            yield f"event: error\ndata: Reflection error: {str(e)}\n\n"
-            return
-
-        yield f"event: reflection\ndata: {reflection}\n\n"
-
-        # MEMORY
-        memory.append({
-            "step": step,
+        step_data = {
+            "step": step + 1,
             "plan": plan,
+            "action": action,
             "result": result,
             "reflection": reflection
-        })
+        }
 
-    yield "event: done\ndata: Goal complete\n\n"
+        memory.append(step_data)
+        steps_output.append(step_data)
+
+        if "goal achieved" in reflection.lower():
+            break
+
+    return {
+        "goal": GOAL,
+        "steps": steps_output
+    }
+
+
+# -----------------------
+# 🌐 Run Once (for UI)
+# -----------------------
+def run_once(custom_goal=None):
+    global GOAL
+
+    if custom_goal and custom_goal.strip():
+        GOAL = custom_goal
+
+    memory.clear()
+
+    result = run_agent(max_steps=3)
+
+    return result
+
+
+# -----------------------
+# 🧪 Local Test
+# -----------------------
+if __name__ == "__main__":
+    output = run_once()
+    print("\nFINAL OUTPUT:\n", json.dumps(output, indent=2))
