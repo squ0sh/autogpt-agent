@@ -1,13 +1,9 @@
 import os
 from openai import OpenAI
 
-# Initialize OpenAI client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# Global control flag
 running = False
-
-# Agent state
 GOAL = ""
 memory = []
 
@@ -18,7 +14,6 @@ def stop_agent():
 
 
 def chat(prompt):
-    """Call OpenAI API"""
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
@@ -31,7 +26,6 @@ def chat(prompt):
 
 
 def generate_plan():
-    """Generate next step plan"""
     prompt = f"""
     Goal: {GOAL}
 
@@ -42,15 +36,13 @@ def generate_plan():
 
     Rules:
     - Max 5 bullet points
-    - Be concise
     - No repetition
-    - Focus on execution
+    - Be concise
     """
     return chat(prompt)
 
 
 def reflect(result):
-    """Reflect on result"""
     prompt = f"""
     Goal: {GOAL}
 
@@ -59,55 +51,53 @@ def reflect(result):
 
     Give a short reflection:
     - What worked
-    - What should happen next
-
-    Keep it concise.
+    - What to do next
     """
     return chat(prompt)
 
 
 def run_agent_stream(goal):
-    """Main streaming agent loop"""
     global running, GOAL, memory
 
     running = True
     GOAL = goal
     memory = []
 
-    yield "🎯 Starting goal...\n\n"
+    yield "event: start\ndata: Starting goal...\n\n"
 
     for step in range(1, 6):
         if not running:
-            yield "🛑 Agent stopped by user.\n"
+            yield "event: stop\ndata: Agent stopped\n\n"
             return
 
-        yield f"\n🔹 Step {step}\n"
+        # STEP HEADER
+        yield f"event: step\ndata: {step}\n\n"
 
-        # --- PLAN ---
-        yield "⏳ Thinking...\n"
+        # PLAN
+        yield "event: status\ndata: Thinking...\n\n"
         try:
             plan = generate_plan()
         except Exception as e:
-            yield f"❌ Error generating plan: {str(e)}\n"
+            yield f"event: error\ndata: Plan error: {str(e)}\n\n"
             return
 
-        yield f"\n📋 Plan:\n{plan}\n"
+        yield f"event: plan\ndata: {plan}\n\n"
 
-        # --- ACTION (simulated for now) ---
-        result = f"Executed step {step} based on plan."
-        yield f"\n⚙️ Result:\n{result}\n"
+        # RESULT
+        result = f"Executed step {step} based on plan"
+        yield f"event: result\ndata: {result}\n\n"
 
-        # --- REFLECTION ---
-        yield "🧠 Reflecting...\n"
+        # REFLECTION
+        yield "event: status\ndata: Reflecting...\n\n"
         try:
             reflection = reflect(result)
         except Exception as e:
-            yield f"❌ Error generating reflection: {str(e)}\n"
+            yield f"event: error\ndata: Reflection error: {str(e)}\n\n"
             return
 
-        yield f"\n🧠 Reflection:\n{reflection}\n\n"
+        yield f"event: reflection\ndata: {reflection}\n\n"
 
-        # --- MEMORY ---
+        # MEMORY
         memory.append({
             "step": step,
             "plan": plan,
@@ -115,4 +105,4 @@ def run_agent_stream(goal):
             "reflection": reflection
         })
 
-    yield "✅ Goal complete.\n"
+    yield "event: done\ndata: Goal complete\n\n"

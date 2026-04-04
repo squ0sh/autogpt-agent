@@ -5,12 +5,16 @@
 
     <style>
         body {
-            font-family: Arial;
-            background: #0f172a;
+            font-family: Arial, sans-serif;
+            background: linear-gradient(to bottom, #0f172a, #1e293b);
             color: white;
             padding: 40px;
             max-width: 900px;
             margin: auto;
+        }
+
+        h1 {
+            text-align: center;
         }
 
         input {
@@ -18,27 +22,58 @@
             padding: 12px;
             border-radius: 8px;
             border: none;
+            margin-top: 20px;
+            font-size: 16px;
         }
 
         button {
-            margin-top: 10px;
-            padding: 12px;
-            border-radius: 8px;
+            margin-top: 15px;
+            padding: 12px 18px;
             border: none;
+            border-radius: 8px;
+            font-size: 16px;
             cursor: pointer;
+            margin-right: 10px;
         }
 
-        .run { background: #4f46e5; color: white; }
-        .stop { background: #dc2626; color: white; }
+        .run {
+            background: #4f46e5;
+            color: white;
+        }
+
+        .stop {
+            background: #dc2626;
+            color: white;
+        }
 
         #output {
-            margin-top: 30px;
+            margin-top: 40px;
+        }
+
+        .step-card {
             background: #1e293b;
             padding: 20px;
-            border-radius: 10px;
-            white-space: pre-wrap;
-            height: 450px;
-            overflow-y: auto;
+            border-radius: 12px;
+            margin-bottom: 20px;
+        }
+
+        .label {
+            color: #60a5fa;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+
+        ul {
+            padding-left: 20px;
+        }
+
+        li {
+            margin-bottom: 5px;
+        }
+
+        p {
+            margin: 6px 0;
+            line-height: 1.5;
         }
     </style>
 </head>
@@ -63,27 +98,101 @@ function startStream() {
 
     if (eventSource) eventSource.close();
 
-    output.innerHTML = "⏳ Starting...\n";
+    output.innerHTML = "";
 
     const url = `/run-stream?goal=${encodeURIComponent(goal)}`;
     eventSource = new EventSource(url);
 
-    eventSource.onmessage = function(event) {
-        output.innerHTML += event.data;
-        output.scrollTop = output.scrollHeight;
-    };
+    let currentStepDiv = null;
 
-    eventSource.onerror = function() {
+    // START
+    eventSource.addEventListener("start", e => {
+        output.innerHTML += `<p>🎯 ${e.data}</p>`;
+    });
+
+    // STEP
+    eventSource.addEventListener("step", e => {
+        currentStepDiv = document.createElement("div");
+        currentStepDiv.className = "step-card";
+        currentStepDiv.innerHTML = `<h3>Step ${e.data}</h3>`;
+        output.appendChild(currentStepDiv);
+    });
+
+    // STATUS
+    eventSource.addEventListener("status", e => {
+        if (currentStepDiv) {
+            currentStepDiv.innerHTML += `<p>⏳ ${e.data}</p>`;
+        }
+    });
+
+    // PLAN
+    eventSource.addEventListener("plan", e => {
+        currentStepDiv.innerHTML += `
+            <p class="label">📋 Plan</p>
+            ${formatText(e.data)}
+        `;
+    });
+
+    // RESULT
+    eventSource.addEventListener("result", e => {
+        currentStepDiv.innerHTML += `
+            <p class="label">⚙️ Result</p>
+            ${formatText(e.data)}
+        `;
+    });
+
+    // REFLECTION
+    eventSource.addEventListener("reflection", e => {
+        currentStepDiv.innerHTML += `
+            <p class="label">🧠 Reflection</p>
+            ${formatText(e.data)}
+        `;
+    });
+
+    // DONE
+    eventSource.addEventListener("done", e => {
+        output.innerHTML += `<p>✅ ${e.data}</p>`;
         eventSource.close();
-    };
+    });
+
+    // STOP
+    eventSource.addEventListener("stop", e => {
+        output.innerHTML += `<p>🛑 ${e.data}</p>`;
+        eventSource.close();
+    });
+
+    // ERROR
+    eventSource.addEventListener("error", e => {
+        output.innerHTML += `<p>❌ ${e.data}</p>`;
+        eventSource.close();
+    });
 }
+
+
+// 🔥 Format GPT output nicely
+function formatText(text) {
+    if (!text) return "";
+
+    // Bullet list detection
+    if (text.includes("-")) {
+        return "<ul>" + text
+            .split("\n")
+            .filter(line => line.trim())
+            .map(line => `<li>${line.replace(/^[-•]\s*/, "")}</li>`)
+            .join("") + "</ul>";
+    }
+
+    // Line breaks
+    return `<p>${text.replace(/\n/g, "<br>")}</p>`;
+}
+
 
 function stopAgent() {
     fetch("/stop", { method: "POST" });
 
     if (eventSource) eventSource.close();
 
-    document.getElementById("output").innerHTML += "\n🛑 Stopped.\n";
+    document.getElementById("output").innerHTML += `<p>🛑 Stopped.</p>`;
 }
 </script>
 
