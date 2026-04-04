@@ -49,60 +49,58 @@ def chat(prompt):
 
 
 # -----------------------
-# 🧠 STEP-BY-STEP PLAN (FORCED)
+# 🧠 STEP GENERATION (STRICT)
 # -----------------------
 def generate_plan():
     step_number = len(memory) + 1
 
     prompt = f"""
-    You are an execution agent working step-by-step.
+You are an execution agent working step-by-step.
 
-    Goal:
-    {GOAL}
+Goal:
+{GOAL}
 
-    Previous steps:
-    {memory}
+Previous steps:
+{memory}
 
-    Current step: {step_number}
+Current step: {step_number}
 
-    RULES:
-    - ONLY generate Step {step_number}
-    - Do NOT generate multiple steps
-    - Do NOT generate a full plan
-    - Focus ONLY on the next action
+RULES:
+- ONLY generate Step {step_number}
+- DO NOT generate multiple steps
+- DO NOT summarize the whole plan
+- Each step must move the goal forward
 
-    FORMAT:
-    Step {step_number}: <short title>
+FORMAT:
+Step {step_number}: <short title>
 
-    - action 1
-    - action 2
-    - action 3
-    """
+- action 1
+- action 2
+- action 3
+"""
 
     return chat(prompt)
 
 
 # -----------------------
-# 🎯 ACTION
+# 🎯 ACTION SELECTION
 # -----------------------
 def decide_action(plan):
     prompt = f"""
-    Plan:
-    {plan}
+Plan:
+{plan}
 
-    Choose ONE action:
-    - write
-    - analyze
-    - search
+Choose ONE action:
+- write
+- analyze
+- search
 
-    Keep input short.
-
-    Return JSON:
-    {{
-        "action": "...",
-        "input": "short instruction"
-    }}
-    """
+Return JSON:
+{{
+    "action": "...",
+    "input": "short instruction"
+}}
+"""
 
     try:
         return json.loads(chat(prompt))
@@ -127,31 +125,55 @@ def execute_action(action):
 
 
 # -----------------------
-# 🔍 REFLECTION (CONTROLLED + CONSERVATIVE)
+# 🔍 REFLECTION (NO FAKE COMPLETION)
 # -----------------------
 def reflect(result):
     prompt = f"""
-    Goal:
-    {GOAL}
+Goal:
+{GOAL}
 
-    Result:
-    {result}
+Result:
+{result}
 
-    Evaluate progress carefully.
+Evaluate progress.
 
-    RULES:
-    - Be conservative
-    - DO NOT say "GOAL ACHIEVED" unless the FULL goal is complete
-    - Most of the time, suggest the next improvement
+RULES:
+- DO NOT say goal is complete unless it truly is
+- Be critical and realistic
+- Suggest next improvement
 
-    Keep response short.
+FORMAT:
+Evaluation:
+<short evaluation>
 
-    FORMAT:
-    - evaluation
-    - next improvement
-    """
+Next:
+<next step improvement>
+"""
 
     return chat(prompt)
+
+
+# -----------------------
+# 🧠 GOAL VALIDATION (THE FIX 🔥)
+# -----------------------
+def is_goal_complete():
+    prompt = f"""
+Goal:
+{GOAL}
+
+Steps taken:
+{memory}
+
+Has the goal been FULLY achieved?
+
+Be strict.
+
+Return ONLY:
+YES or NO
+"""
+
+    result = chat(prompt).strip().lower()
+    return "yes" in result
 
 
 # -----------------------
@@ -159,36 +181,35 @@ def reflect(result):
 # -----------------------
 def generate_final():
     prompt = f"""
-    Goal:
-    {GOAL}
+Goal:
+{GOAL}
 
-    Steps completed:
-    {memory}
+Steps completed:
+{memory}
 
-    Produce FINAL COMPLETE RESULT.
+Produce FINAL COMPLETE RESULT.
 
-    Requirements:
-    - Structured
-    - Clear
-    - Actionable
-    - Feels complete
-    - No repetition
-    """
+Requirements:
+- Clear
+- Structured
+- Actionable
+- Complete
+"""
 
     return chat(prompt)
 
 
 # -----------------------
-# 🧠 SELF-REFINEMENT
+# 🧠 REFINEMENT
 # -----------------------
 def refine(final):
     prompt = f"""
-    Improve this result to be clearer, more actionable, and more concise:
+Improve this result:
 
-    {final}
+{final}
 
-    Return improved version only.
-    """
+Make it clearer, more actionable, and concise.
+"""
 
     return chat(prompt)
 
@@ -202,13 +223,16 @@ def stop():
 
 
 # -----------------------
-# ⚡ STREAM
+# ⚡ STREAM UTIL
 # -----------------------
 def safe(text):
     return str(text).replace("\n", "\\n")
 
 
-def run_agent_stream(goal, max_steps=5):
+# -----------------------
+# 🚀 MAIN AGENT LOOP
+# -----------------------
+def run_agent_stream(goal, max_steps=6):
     global GOAL, memory, RUN_ID, STOP_FLAG
 
     GOAL = goal
@@ -220,7 +244,9 @@ def run_agent_stream(goal, max_steps=5):
 
     yield f"event: start\ndata: {safe(goal)}\n\n"
 
-    for step in range(max_steps):
+    step = 0
+
+    while step < max_steps:
 
         if STOP_FLAG:
             yield f"event: stopped\ndata: Stopped by user\n\n"
@@ -250,13 +276,15 @@ def run_agent_stream(goal, max_steps=5):
 
         save_memory()
 
-        # ✅ FIX: prevent early stopping
-        if "goal achieved" in reflection.lower() and len(memory) >= MIN_STEPS:
-            break
+        # ✅ REAL completion check
+        if len(memory) >= MIN_STEPS:
+            if is_goal_complete():
+                break
 
+        step += 1
         time.sleep(0.3)
 
-    # 🏁 FINAL OUTPUT
+    # 🧠 FINAL OUTPUT
     final = generate_final()
     improved = refine(final)
 
