@@ -1,21 +1,16 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
     <title>AI Agent Dashboard</title>
 
     <style>
         body {
-            font-family: Arial, sans-serif;
+            font-family: Arial;
             background: linear-gradient(to bottom, #0f172a, #1e293b);
             color: white;
             padding: 40px;
             max-width: 900px;
             margin: auto;
-        }
-
-        h1 {
-            text-align: center;
         }
 
         input {
@@ -24,208 +19,131 @@
             border-radius: 8px;
             border: none;
             margin-top: 20px;
-            font-size: 16px;
         }
 
         button {
             margin-top: 15px;
-            padding: 12px 20px;
-            border: none;
+            padding: 12px 18px;
             border-radius: 8px;
-            background: #4f46e5;
-            color: white;
-            font-size: 16px;
+            border: none;
             cursor: pointer;
+            margin-right: 10px;
         }
 
-        button:hover {
-            background: #4338ca;
-        }
-
-        #output {
-            margin-top: 40px;
-        }
+        .run { background: #4f46e5; color: white; }
+        .stream { background: #16a34a; color: white; }
 
         .step-card {
             background: #1e293b;
             padding: 20px;
             border-radius: 12px;
-            margin-bottom: 20px;
+            margin-top: 20px;
         }
 
         .label {
             color: #60a5fa;
             font-weight: bold;
-            display: block;
-            margin-bottom: 5px;
-        }
-
-        .section {
-            margin-top: 15px;
-        }
-
-        h2 {
-            margin-top: 30px;
-        }
-
-        h3 {
-            margin-bottom: 10px;
-        }
-
-        h4 {
-            margin-top: 15px;
-            color: #60a5fa;
-        }
-
-        ul, ol {
-            padding-left: 20px;
-            margin-top: 5px;
-        }
-
-        li {
-            margin-bottom: 6px;
-        }
-
-        p {
-            margin: 6px 0;
-            line-height: 1.5;
         }
     </style>
 </head>
 
 <body>
 
-    <h1>🧠 AI Agent Dashboard</h1>
+<h1>🧠 AI Agent Dashboard</h1>
 
-    <input id="goal" placeholder="Enter your goal..." />
-    <button onclick="runAgent()">Run Agent</button>
+<input id="goal" placeholder="Enter your goal..." />
 
-    <div id="output"></div>
+<button class="run" onclick="runAgent()">Run Agent</button>
+<button class="stream" onclick="runStream()">⚡ Stream Mode</button>
 
-    <script>
-        function cleanText(text) {
-            if (!text) return "";
+<div id="output"></div>
 
-            // Remove JSON/code blocks
-            text = text.replace(/```json[\s\S]*?```/g, "");
-            text = text.replace(/Generated content:.*$/gm, "");
+<script>
+function cleanText(text) {
+    if (!text) return "";
+    return `<p>${text.replace(/\\n/g, "<br>")}</p>`;
+}
 
-            const lines = text.split("\n");
 
-            let html = "";
-            let inList = false;
-            let listType = null;
+// ---------------- NORMAL ----------------
+async function runAgent() {
+    const goal = document.getElementById("goal").value;
+    const output = document.getElementById("output");
 
-            lines.forEach(line => {
-                let trimmed = line.trim();
+    output.innerHTML = "⏳ Running...";
 
-                if (!trimmed) return;
+    const res = await fetch("/run", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({goal})
+    });
 
-                // Fix duplicate numbering like "1. 1."
-                trimmed = trimmed.replace(/^\d+\.\s*\d*\.*\s*/, "");
+    const data = await res.json();
 
-                // Ordered list
-                if (/^\d+\./.test(line.trim())) {
-                    if (!inList || listType !== "ol") {
-                        if (inList) html += listType === "ul" ? "</ul>" : "</ol>";
-                        html += "<ol>";
-                        inList = true;
-                        listType = "ol";
-                    }
+    let html = `<h2>🎯 ${data.goal}</h2>`;
 
-                    trimmed = trimmed.replace(/^\d+\.\s*/, "");
-                    html += `<li>${trimmed}</li>`;
-                }
+    data.steps.forEach(step => {
+        html += `
+        <div class="step-card">
+            <h3>Step ${step.step}</h3>
 
-                // Bullet list
-                else if (trimmed.startsWith("-") || trimmed.startsWith("•")) {
-                    if (!inList || listType !== "ul") {
-                        if (inList) html += listType === "ol" ? "</ol>" : "</ul>";
-                        html += "<ul>";
-                        inList = true;
-                        listType = "ul";
-                    }
+            <p class="label">Plan</p>
+            ${cleanText(step.plan)}
 
-                    trimmed = trimmed.replace(/^[-•]\s*/, "");
-                    html += `<li>${trimmed}</li>`;
-                }
+            <p class="label">Result</p>
+            ${cleanText(JSON.stringify(step.result, null, 2))}
 
-                else {
-                    if (inList) {
-                        html += listType === "ol" ? "</ol>" : "</ul>";
-                        inList = false;
-                    }
+            <p class="label">Reflection</p>
+            ${cleanText(step.reflection)}
+        </div>
+        `;
+    });
 
-                    // Section headers
-                    if (trimmed.startsWith("###")) {
-                        html += `<h4>${trimmed.replace("###", "").trim()}</h4>`;
-                    }
+    output.innerHTML = html;
+}
 
-                    // Bold sections (**Title**)
-                    else if (trimmed.match(/^\*\*(.*?)\*\*/)) {
-                        html += `<p><strong>${trimmed.replace(/\*\*/g, "")}</strong></p>`;
-                    }
 
-                    else {
-                        html += `<p>${trimmed}</p>`;
-                    }
-                }
-            });
+// ---------------- STREAM ----------------
+function runStream() {
+    const goal = document.getElementById("goal").value;
+    const output = document.getElementById("output");
 
-            if (inList) {
-                html += listType === "ol" ? "</ol>" : "</ul>";
-            }
+    output.innerHTML = "⚡ Streaming...";
 
-            return html;
-        }
+    const es = new EventSource(`/stream?goal=${encodeURIComponent(goal)}`);
 
-        async function runAgent() {
-            const goal = document.getElementById("goal").value;
-            const outputDiv = document.getElementById("output");
+    let current = null;
 
-            outputDiv.innerHTML = "⏳ Running agent...";
+    es.addEventListener("step", e => {
+        current = document.createElement("div");
+        current.className = "step-card";
+        current.innerHTML = `<h3>Step ${e.data}</h3>`;
+        output.appendChild(current);
+    });
 
-            const res = await fetch('/run', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ goal })
-            });
+    es.addEventListener("plan", e => {
+        current.innerHTML += `<p class="label">Plan</p>${cleanText(e.data)}`;
+    });
 
-            const data = await res.json();
+    es.addEventListener("result", e => {
+        current.innerHTML += `<p class="label">Result</p>${cleanText(e.data)}`;
+    });
 
-            let html = `
-                <h2>🎯 Goal</h2>
-                <p>${data.goal}</p>
-            `;
+    es.addEventListener("reflection", e => {
+        current.innerHTML += `<p class="label">Reflection</p>${cleanText(e.data)}`;
+    });
 
-            data.steps.forEach(step => {
-                html += `
-                    <div class="step-card">
-                        <h3>Step ${step.step}</h3>
+    es.addEventListener("done", e => {
+        output.innerHTML += `<p>✅ ${e.data}</p>`;
+        es.close();
+    });
 
-                        <div class="section">
-                            <span class="label">Plan</span>
-                            ${cleanText(step.plan)}
-                        </div>
-
-                        <div class="section">
-                            <span class="label">Result</span>
-                            ${cleanText(typeof step.result === "string" 
-                                ? step.result 
-                                : JSON.stringify(step.result, null, 2))}
-                        </div>
-
-                        <div class="section">
-                            <span class="label">Reflection</span>
-                            ${cleanText(step.reflection)}
-                        </div>
-                    </div>
-                `;
-            });
-
-            outputDiv.innerHTML = html;
-        }
-    </script>
+    es.onerror = () => {
+        output.innerHTML += `<p>❌ Stream ended</p>`;
+        es.close();
+    };
+}
+</script>
 
 </body>
 </html>

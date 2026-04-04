@@ -1,19 +1,16 @@
 import json
 import os
+import time
 from openai import OpenAI
 
-# Initialize OpenAI client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# Default goal (can be overridden from UI)
 GOAL = "Create a simple online business idea and validate it"
-
-# In-memory storage
 memory = []
 
 
 # -----------------------
-# 🔹 Core Chat Function
+# 🔹 Core Chat
 # -----------------------
 def chat(prompt):
     response = client.chat.completions.create(
@@ -25,7 +22,7 @@ def chat(prompt):
 
 
 # -----------------------
-# 🧠 Planning Step
+# 🧠 Plan
 # -----------------------
 def generate_plan():
     prompt = f"""
@@ -34,19 +31,17 @@ def generate_plan():
     Previous memory:
     {memory}
 
-    What is the next best step to achieve the goal?
-    Be specific and actionable.
+    What is the next best step?
     """
     return chat(prompt)
 
 
 # -----------------------
-# 🎯 Decide Action
+# 🎯 Action
 # -----------------------
 def decide_action(plan):
     prompt = f"""
-    Based on this plan:
-
+    Plan:
     {plan}
 
     Choose ONE action:
@@ -54,26 +49,21 @@ def decide_action(plan):
     - analyze
     - search
 
-    Respond ONLY in valid JSON:
+    Return JSON:
     {{
         "action": "...",
         "input": "..."
     }}
     """
 
-    response = chat(prompt)
-
     try:
-        return json.loads(response)
+        return json.loads(chat(prompt))
     except:
-        return {
-            "action": "write",
-            "input": response
-        }
+        return {"action": "write", "input": plan}
 
 
 # -----------------------
-# 🛠 Execute Action
+# 🛠 Tool Execution
 # -----------------------
 def execute_action(action):
     from tools import run_tool
@@ -81,42 +71,33 @@ def execute_action(action):
 
 
 # -----------------------
-# 🔍 Reflection Step
+# 🔍 Reflection
 # -----------------------
 def reflect(result):
     prompt = f"""
     Goal: {GOAL}
 
-    Result of last action:
+    Result:
     {result}
 
-    Did this help achieve the goal?
-    What should be done next differently or better?
-    If the goal is complete, say "GOAL ACHIEVED".
+    Did this help?
+    What should improve?
+    Say GOAL ACHIEVED if done.
     """
     return chat(prompt)
 
 
 # -----------------------
-# 🔁 Main Agent Loop
+# 🔁 NORMAL MODE (UNCHANGED)
 # -----------------------
 def run_agent(max_steps=3):
     steps_output = []
 
     for step in range(max_steps):
-        print(f"\n--- Step {step+1} ---")
-
         plan = generate_plan()
-        print("PLAN:", plan)
-
         action = decide_action(plan)
-        print("ACTION:", action)
-
         result = execute_action(action)
-        print("RESULT:", result)
-
         reflection = reflect(result)
-        print("REFLECTION:", reflection)
 
         step_data = {
             "step": step + 1,
@@ -138,9 +119,6 @@ def run_agent(max_steps=3):
     }
 
 
-# -----------------------
-# 🌐 Run Once (for UI)
-# -----------------------
 def run_once(custom_goal=None):
     global GOAL
 
@@ -148,15 +126,51 @@ def run_once(custom_goal=None):
         GOAL = custom_goal
 
     memory.clear()
-
-    result = run_agent(max_steps=3)
-
-    return result
+    return run_agent(max_steps=3)
 
 
 # -----------------------
-# 🧪 Local Test
+# ⚡ STREAM MODE (NEW)
 # -----------------------
-if __name__ == "__main__":
-    output = run_once()
-    print("\nFINAL OUTPUT:\n", json.dumps(output, indent=2))
+def safe(text):
+    return str(text).replace("\n", "\\n")
+
+
+def run_agent_stream(goal, max_steps=3):
+    global GOAL
+    GOAL = goal
+    memory.clear()
+
+    yield f"event: start\ndata: {safe('Starting goal: ' + goal)}\n\n"
+
+    for step in range(max_steps):
+        yield f"event: step\ndata: {step+1}\n\n"
+
+        plan = generate_plan()
+        yield f"event: plan\ndata: {safe(plan)}\n\n"
+
+        action = decide_action(plan)
+        yield f"event: action\ndata: {safe(json.dumps(action))}\n\n"
+
+        result = execute_action(action)
+        yield f"event: result\ndata: {safe(result)}\n\n"
+
+        reflection = reflect(result)
+        yield f"event: reflection\ndata: {safe(reflection)}\n\n"
+
+        memory.append({
+            "step": step + 1,
+            "plan": plan,
+            "action": action,
+            "result": result,
+            "reflection": reflection
+        })
+
+        if "goal achieved" in reflection.lower():
+            yield f"event: done\ndata: Goal achieved\n\n"
+            return
+
+        time.sleep(0.5)
+
+    yield f"event: done\ndata: Finished all steps\n\n"
+
