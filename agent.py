@@ -5,7 +5,7 @@ from openai import OpenAI
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-GOAL = "Create a simple online business idea and validate it"
+GOAL = ""
 memory = []
 
 
@@ -16,7 +16,8 @@ def chat(prompt):
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.7,
+        temperature=0.6,
+        max_tokens=500,
     )
     return response.choices[0].message.content.strip()
 
@@ -26,22 +27,30 @@ def chat(prompt):
 # -----------------------
 def generate_plan():
     prompt = f"""
+    You are an autonomous AI agent.
+
     Goal: {GOAL}
 
-    Previous memory:
+    Previous steps:
     {memory}
 
-    What is the next best step?
+    What is the NEXT best step?
+
+    Respond clearly with:
+    - Short title
+    - Bullet points (3–5 max)
+    - Be concise and actionable
     """
     return chat(prompt)
 
 
 # -----------------------
-# 🎯 Action
+# 🎯 Decide Action
 # -----------------------
 def decide_action(plan):
     prompt = f"""
-    Plan:
+    Based on this plan:
+
     {plan}
 
     Choose ONE action:
@@ -49,25 +58,37 @@ def decide_action(plan):
     - analyze
     - search
 
+    IMPORTANT:
+    - Keep input SHORT
+    - Do NOT repeat the plan
+
     Return JSON:
     {{
         "action": "...",
-        "input": "..."
+        "input": "short instruction"
     }}
     """
 
     try:
         return json.loads(chat(prompt))
     except:
-        return {"action": "write", "input": plan}
+        return {"action": "write", "input": "Execute next step"}
 
 
 # -----------------------
-# 🛠 Tool Execution
+# 🛠 Execute Action
 # -----------------------
 def execute_action(action):
     from tools import run_tool
-    return run_tool(action)
+
+    result = run_tool(action)
+
+    # Clean duplication
+    if isinstance(result, str):
+        if result.lower().startswith("generated content"):
+            result = result.split(":", 1)[-1].strip()
+
+    return result
 
 
 # -----------------------
@@ -80,57 +101,19 @@ def reflect(result):
     Result:
     {result}
 
-    Did this help?
-    What should improve?
-    Say GOAL ACHIEVED if done.
+    Did this move us closer to the goal?
+
+    Respond with:
+    - Short evaluation
+    - What to improve next
+
+    If goal is complete, say: GOAL ACHIEVED
     """
     return chat(prompt)
 
 
 # -----------------------
-# 🔁 NORMAL MODE (UNCHANGED)
-# -----------------------
-def run_agent(max_steps=3):
-    steps_output = []
-
-    for step in range(max_steps):
-        plan = generate_plan()
-        action = decide_action(plan)
-        result = execute_action(action)
-        reflection = reflect(result)
-
-        step_data = {
-            "step": step + 1,
-            "plan": plan,
-            "action": action,
-            "result": result,
-            "reflection": reflection
-        }
-
-        memory.append(step_data)
-        steps_output.append(step_data)
-
-        if "goal achieved" in reflection.lower():
-            break
-
-    return {
-        "goal": GOAL,
-        "steps": steps_output
-    }
-
-
-def run_once(custom_goal=None):
-    global GOAL
-
-    if custom_goal and custom_goal.strip():
-        GOAL = custom_goal
-
-    memory.clear()
-    return run_agent(max_steps=3)
-
-
-# -----------------------
-# ⚡ STREAM MODE (NEW)
+# ⚡ STREAM MODE
 # -----------------------
 def safe(text):
     return str(text).replace("\n", "\\n")
@@ -141,7 +124,7 @@ def run_agent_stream(goal, max_steps=3):
     GOAL = goal
     memory.clear()
 
-    yield f"event: start\ndata: {safe('Starting goal: ' + goal)}\n\n"
+    yield f"event: start\ndata: {safe('Starting: ' + goal)}\n\n"
 
     for step in range(max_steps):
         yield f"event: step\ndata: {step+1}\n\n"
@@ -170,7 +153,9 @@ def run_agent_stream(goal, max_steps=3):
             yield f"event: done\ndata: Goal achieved\n\n"
             return
 
-        time.sleep(0.5)
+        time.sleep(0.4)
 
     yield f"event: done\ndata: Finished all steps\n\n"
+
+
 

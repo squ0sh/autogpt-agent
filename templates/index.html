@@ -13,36 +13,54 @@
             margin: auto;
         }
 
+        h1 {
+            text-align: center;
+        }
+
         input {
             width: 100%;
             padding: 12px;
             border-radius: 8px;
             border: none;
             margin-top: 20px;
+            font-size: 16px;
         }
 
         button {
             margin-top: 15px;
-            padding: 12px 18px;
+            padding: 12px 20px;
             border-radius: 8px;
             border: none;
+            background: #16a34a;
+            color: white;
+            font-size: 16px;
             cursor: pointer;
-            margin-right: 10px;
         }
 
-        .run { background: #4f46e5; color: white; }
-        .stream { background: #16a34a; color: white; }
+        button:hover {
+            background: #15803d;
+        }
+
+        #output {
+            margin-top: 40px;
+        }
 
         .step-card {
             background: #1e293b;
             padding: 20px;
             border-radius: 12px;
-            margin-top: 20px;
+            margin-bottom: 20px;
         }
 
         .label {
             color: #60a5fa;
             font-weight: bold;
+            margin-top: 10px;
+        }
+
+        p {
+            line-height: 1.5;
+            margin: 6px 0;
         }
     </style>
 </head>
@@ -52,63 +70,26 @@
 <h1>🧠 AI Agent Dashboard</h1>
 
 <input id="goal" placeholder="Enter your goal..." />
-
-<button class="run" onclick="runAgent()">Run Agent</button>
-<button class="stream" onclick="runStream()">⚡ Stream Mode</button>
+<button onclick="runStream()">⚡ Run Agent</button>
 
 <div id="output"></div>
 
 <script>
-function cleanText(text) {
+function clean(text) {
     if (!text) return "";
-    return `<p>${text.replace(/\\n/g, "<br>")}</p>`;
+
+    return text
+        .replace(/\\n/g, "<br>")
+        .replace(/\*\*/g, "")
+        .replace(/Generated content:/gi, "");
 }
 
 
-// ---------------- NORMAL ----------------
-async function runAgent() {
-    const goal = document.getElementById("goal").value;
-    const output = document.getElementById("output");
-
-    output.innerHTML = "⏳ Running...";
-
-    const res = await fetch("/run", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({goal})
-    });
-
-    const data = await res.json();
-
-    let html = `<h2>🎯 ${data.goal}</h2>`;
-
-    data.steps.forEach(step => {
-        html += `
-        <div class="step-card">
-            <h3>Step ${step.step}</h3>
-
-            <p class="label">Plan</p>
-            ${cleanText(step.plan)}
-
-            <p class="label">Result</p>
-            ${cleanText(JSON.stringify(step.result, null, 2))}
-
-            <p class="label">Reflection</p>
-            ${cleanText(step.reflection)}
-        </div>
-        `;
-    });
-
-    output.innerHTML = html;
-}
-
-
-// ---------------- STREAM ----------------
 function runStream() {
     const goal = document.getElementById("goal").value;
     const output = document.getElementById("output");
 
-    output.innerHTML = "⚡ Streaming...";
+    output.innerHTML = "⚡ Running agent...";
 
     const es = new EventSource(`/stream?goal=${encodeURIComponent(goal)}`);
 
@@ -122,15 +103,24 @@ function runStream() {
     });
 
     es.addEventListener("plan", e => {
-        current.innerHTML += `<p class="label">Plan</p>${cleanText(e.data)}`;
+        current.innerHTML += `
+            <div class="label">Plan</div>
+            <p>${clean(e.data)}</p>
+        `;
     });
 
     es.addEventListener("result", e => {
-        current.innerHTML += `<p class="label">Result</p>${cleanText(e.data)}`;
+        current.innerHTML += `
+            <div class="label">Result</div>
+            <p>${clean(e.data)}</p>
+        `;
     });
 
     es.addEventListener("reflection", e => {
-        current.innerHTML += `<p class="label">Reflection</p>${cleanText(e.data)}`;
+        current.innerHTML += `
+            <div class="label">Reflection</div>
+            <p>${clean(e.data)}</p>
+        `;
     });
 
     es.addEventListener("done", e => {
