@@ -49,13 +49,13 @@ def chat(prompt):
 
 
 # -----------------------
-# 🧠 STEP-BY-STEP PLAN (FIXED)
+# 🧠 STEP-BY-STEP PLAN (FORCED)
 # -----------------------
 def generate_plan():
     step_number = len(memory) + 1
 
     prompt = f"""
-    You are an autonomous agent executing a goal step-by-step.
+    You are an execution agent working step-by-step.
 
     Goal:
     {GOAL}
@@ -68,8 +68,8 @@ def generate_plan():
     RULES:
     - ONLY generate Step {step_number}
     - Do NOT generate multiple steps
-    - Do NOT generate a full roadmap
-    - Focus ONLY on the NEXT action
+    - Do NOT generate a full plan
+    - Focus ONLY on the next action
 
     FORMAT:
     Step {step_number}: <short title>
@@ -127,7 +127,7 @@ def execute_action(action):
 
 
 # -----------------------
-# 🔍 REFLECTION (CONTROLLED)
+# 🔍 REFLECTION (CONTROLLED + CONSERVATIVE)
 # -----------------------
 def reflect(result):
     prompt = f"""
@@ -137,15 +137,18 @@ def reflect(result):
     Result:
     {result}
 
-    Keep response SHORT.
+    Evaluate progress carefully.
 
-    - Did this help?
-    - What is the NEXT improvement?
+    RULES:
+    - Be conservative
+    - DO NOT say "GOAL ACHIEVED" unless the FULL goal is complete
+    - Most of the time, suggest the next improvement
 
-    DO NOT generate multiple steps.
-    DO NOT create a full plan.
+    Keep response short.
 
-    If complete, say: GOAL ACHIEVED
+    FORMAT:
+    - evaluation
+    - next improvement
     """
 
     return chat(prompt)
@@ -168,6 +171,7 @@ def generate_final():
     - Structured
     - Clear
     - Actionable
+    - Feels complete
     - No repetition
     """
 
@@ -212,6 +216,8 @@ def run_agent_stream(goal, max_steps=5):
     STOP_FLAG = False
     RUN_ID = str(uuid.uuid4())
 
+    MIN_STEPS = 3
+
     yield f"event: start\ndata: {safe(goal)}\n\n"
 
     for step in range(max_steps):
@@ -244,7 +250,8 @@ def run_agent_stream(goal, max_steps=5):
 
         save_memory()
 
-        if "goal achieved" in reflection.lower():
+        # ✅ FIX: prevent early stopping
+        if "goal achieved" in reflection.lower() and len(memory) >= MIN_STEPS:
             break
 
         time.sleep(0.3)
