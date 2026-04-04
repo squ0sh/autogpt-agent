@@ -106,9 +106,11 @@
         function cleanText(text) {
             if (!text) return "";
 
-            // Remove JSON + noise
+            // Remove JSON blocks
             text = text.replace(/```json[\s\S]*?```/g, "");
             text = text.replace(/Generated content:.*$/gm, "");
+
+            // Remove duplicate "Step X:"
             text = text.replace(/Step\s*\d+:\s*/g, "");
 
             const lines = text.split("\n");
@@ -120,7 +122,7 @@
             lines.forEach(line => {
                 let trimmed = line.trim();
 
-                // Force clean numbered lists (ignore model numbering)
+                // Numbered list
                 if (/^\d+\./.test(trimmed)) {
                     if (!inList || listType !== "ol") {
                         if (inList) html += listType === "ul" ? "</ul>" : "</ol>";
@@ -133,7 +135,7 @@
                     html += `<li>${trimmed}</li>`;
                 }
 
-                // Bullet lists
+                // Bullet list
                 else if (trimmed.startsWith("-") || trimmed.startsWith("•")) {
                     if (!inList || listType !== "ul") {
                         if (inList) html += listType === "ol" ? "</ol>" : "</ul>";
@@ -152,11 +154,9 @@
                         inList = false;
                     }
 
-                    // Smart headers
-                    if (
-                        trimmed.match(/^[A-Z][A-Za-z\s]+$/) ||
-                        (trimmed.includes(":") && trimmed.length < 60)
-                    ) {
+                    // Headers
+                    if (trimmed.startsWith("###")) {
+                        trimmed = trimmed.replace("###", "").trim();
                         html += `<h4>${trimmed}</h4>`;
                     }
 
