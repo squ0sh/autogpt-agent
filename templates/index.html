@@ -51,12 +51,16 @@
             background: #1f2937;
             padding: 20px;
             border-radius: 10px;
-            margin-bottom: 20px;
+            margin-bottom: 25px;
         }
 
         .label {
             font-weight: bold;
             color: #93c5fd;
+        }
+
+        p {
+            line-height: 1.6;
         }
     </style>
 </head>
@@ -71,6 +75,18 @@
     <div id="output">Output will appear here...</div>
 
     <script>
+        function formatText(text) {
+            if (!text) return "";
+
+            // Convert numbered lists into bullet points
+            text = text.replace(/\d+\.\s/g, "• ");
+
+            // Convert new lines into HTML line breaks
+            text = text.replace(/\n/g, "<br>");
+
+            return text;
+        }
+
         async function runAgent() {
             const goal = document.getElementById("goal").value;
             const outputDiv = document.getElementById("output");
@@ -87,7 +103,7 @@
 
             let html = `
                 <h2>🎯 Goal</h2>
-                <p>${data.goal}</p>
+                <p>${formatText(data.goal)}</p>
             `;
 
             data.steps.forEach(step => {
@@ -95,19 +111,20 @@
                     <div class="step-card">
                         <h3>Step ${step.step}</h3>
 
-                        <p><span class="label">Plan:</span><br>${step.plan}</p>
+                        <p><span class="label">Plan:</span><br>
+                        ${formatText(step.plan)}</p>
 
                         <p><span class="label">Action:</span>
                         ${step.action.action}</p>
 
                         <p><span class="label">Input:</span><br>
-                        ${step.action.input}</p>
+                        ${formatText(step.action.input)}</p>
 
                         <p><span class="label">Result:</span><br>
-                        ${step.result}</p>
+                        ${formatText(step.result)}</p>
 
                         <p><span class="label">Reflection:</span><br>
-                        ${step.reflection}</p>
+                        ${formatText(step.reflection)}</p>
                     </div>
                 `;
             });
