@@ -106,12 +106,9 @@
         function cleanText(text) {
             if (!text) return "";
 
-            // Remove JSON blocks
+            // Remove JSON/code blocks
             text = text.replace(/```json[\s\S]*?```/g, "");
             text = text.replace(/Generated content:.*$/gm, "");
-
-            // Remove duplicate "Step X:"
-            text = text.replace(/Step\s*\d+:\s*/g, "");
 
             const lines = text.split("\n");
 
@@ -122,8 +119,13 @@
             lines.forEach(line => {
                 let trimmed = line.trim();
 
-                // Numbered list
-                if (/^\d+\./.test(trimmed)) {
+                if (!trimmed) return;
+
+                // Fix duplicate numbering like "1. 1."
+                trimmed = trimmed.replace(/^\d+\.\s*\d*\.*\s*/, "");
+
+                // Ordered list
+                if (/^\d+\./.test(line.trim())) {
                     if (!inList || listType !== "ol") {
                         if (inList) html += listType === "ul" ? "</ul>" : "</ol>";
                         html += "<ol>";
@@ -154,13 +156,17 @@
                         inList = false;
                     }
 
-                    // Headers
+                    // Section headers
                     if (trimmed.startsWith("###")) {
-                        trimmed = trimmed.replace("###", "").trim();
-                        html += `<h4>${trimmed}</h4>`;
+                        html += `<h4>${trimmed.replace("###", "").trim()}</h4>`;
                     }
 
-                    else if (trimmed !== "") {
+                    // Bold sections (**Title**)
+                    else if (trimmed.match(/^\*\*(.*?)\*\*/)) {
+                        html += `<p><strong>${trimmed.replace(/\*\*/g, "")}</strong></p>`;
+                    }
+
+                    else {
                         html += `<p>${trimmed}</p>`;
                     }
                 }
@@ -200,6 +206,13 @@
                         <div class="section">
                             <span class="label">Plan</span>
                             ${cleanText(step.plan)}
+                        </div>
+
+                        <div class="section">
+                            <span class="label">Result</span>
+                            ${cleanText(typeof step.result === "string" 
+                                ? step.result 
+                                : JSON.stringify(step.result, null, 2))}
                         </div>
 
                         <div class="section">
