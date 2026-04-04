@@ -21,7 +21,10 @@ def save_memory():
     data = {}
     if os.path.exists(MEMORY_FILE):
         with open(MEMORY_FILE, "r") as f:
-            data = json.load(f)
+            try:
+                data = json.load(f)
+            except:
+                data = {}
 
     data[RUN_ID] = {
         "goal": GOAL,
@@ -39,28 +42,43 @@ def chat(prompt):
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.6,
-        max_tokens=700,
+        temperature=0.5,
+        max_tokens=500,
     )
     return response.choices[0].message.content.strip()
 
 
 # -----------------------
-# 🧠 PLAN
+# 🧠 STEP-BY-STEP PLAN (FIXED)
 # -----------------------
 def generate_plan():
+    step_number = len(memory) + 1
+
     prompt = f"""
-    Goal: {GOAL}
+    You are an autonomous agent executing a goal step-by-step.
+
+    Goal:
+    {GOAL}
 
     Previous steps:
     {memory}
 
-    What is the NEXT best step?
+    Current step: {step_number}
 
-    Format:
-    - Title
-    - 3–5 bullets
+    RULES:
+    - ONLY generate Step {step_number}
+    - Do NOT generate multiple steps
+    - Do NOT generate a full roadmap
+    - Focus ONLY on the NEXT action
+
+    FORMAT:
+    Step {step_number}: <short title>
+
+    - action 1
+    - action 2
+    - action 3
     """
+
     return chat(prompt)
 
 
@@ -77,6 +95,8 @@ def decide_action(plan):
     - analyze
     - search
 
+    Keep input short.
+
     Return JSON:
     {{
         "action": "...",
@@ -87,7 +107,7 @@ def decide_action(plan):
     try:
         return json.loads(chat(prompt))
     except:
-        return {"action": "write", "input": "execute step"}
+        return {"action": "write", "input": "execute next step"}
 
 
 # -----------------------
@@ -107,23 +127,27 @@ def execute_action(action):
 
 
 # -----------------------
-# 🔍 REFLECT
+# 🔍 REFLECTION (CONTROLLED)
 # -----------------------
 def reflect(result):
     prompt = f"""
-    Goal: {GOAL}
+    Goal:
+    {GOAL}
 
     Result:
     {result}
 
-    Did this help?
+    Keep response SHORT.
 
-    Respond:
-    - short evaluation
-    - improvement
+    - Did this help?
+    - What is the NEXT improvement?
 
-    If done, say: GOAL ACHIEVED
+    DO NOT generate multiple steps.
+    DO NOT create a full plan.
+
+    If complete, say: GOAL ACHIEVED
     """
+
     return chat(prompt)
 
 
@@ -135,26 +159,33 @@ def generate_final():
     Goal:
     {GOAL}
 
-    Steps:
+    Steps completed:
     {memory}
 
     Produce FINAL COMPLETE RESULT.
-    Clean. Structured. Actionable.
+
+    Requirements:
+    - Structured
+    - Clear
+    - Actionable
+    - No repetition
     """
+
     return chat(prompt)
 
 
 # -----------------------
-# 🧠 SELF IMPROVE
+# 🧠 SELF-REFINEMENT
 # -----------------------
 def refine(final):
     prompt = f"""
-    Improve this result to be clearer, more actionable, and higher quality:
+    Improve this result to be clearer, more actionable, and more concise:
 
     {final}
 
     Return improved version only.
     """
+
     return chat(prompt)
 
 
@@ -218,10 +249,9 @@ def run_agent_stream(goal, max_steps=5):
 
         time.sleep(0.3)
 
-    # FINAL
+    # 🏁 FINAL OUTPUT
     final = generate_final()
     improved = refine(final)
 
     yield f"event: final\ndata: {safe(improved)}\n\n"
-    yield f"event: done\ndata: complete\n\n"
-
+    yield f"event: done\ndata: Goal completed\n\n"
