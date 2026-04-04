@@ -26,19 +26,35 @@
             font-size: 16px;
         }
 
-        button {
+        .buttons {
             margin-top: 15px;
+        }
+
+        button {
             padding: 12px 20px;
             border-radius: 8px;
             border: none;
-            background: #16a34a;
-            color: white;
             font-size: 16px;
             cursor: pointer;
+            margin-right: 10px;
         }
 
-        button:hover {
+        .run-btn {
+            background: #16a34a;
+            color: white;
+        }
+
+        .run-btn:hover {
             background: #15803d;
+        }
+
+        .stop-btn {
+            background: #dc2626;
+            color: white;
+        }
+
+        .stop-btn:hover {
+            background: #b91c1c;
         }
 
         #output {
@@ -76,18 +92,24 @@
 <h1>🧠 AI Agent Dashboard</h1>
 
 <input id="goal" placeholder="Enter your goal..." />
-<button onclick="runStream()">⚡ Run Agent</button>
+
+<div class="buttons">
+    <button class="run-btn" onclick="runStream()">⚡ Run Agent</button>
+    <button class="stop-btn" onclick="stopAgent()">🛑 Stop</button>
+</div>
 
 <div id="output"></div>
 
 <script>
+let es = null;
+
 function clean(text) {
     if (!text) return "";
 
     return text
         .replace(/\\n/g, "<br>")
         .replace(/\*\*/g, "")
-        .replace(/###\s*/g, "")
+        .replace(/###/g, "")
         .replace(/Generated content:/gi, "");
 }
 
@@ -98,12 +120,15 @@ function runStream() {
 
     output.innerHTML = "⚡ Running agent...";
 
-    const es = new EventSource(`/stream?goal=${encodeURIComponent(goal)}`);
+    // Close existing stream if any
+    if (es) es.close();
+
+    es = new EventSource(`/stream?goal=${encodeURIComponent(goal)}`);
 
     let current = null;
 
     es.addEventListener("start", e => {
-        output.innerHTML = `<p>🧠 ${clean(e.data)}</p>`;
+        output.innerHTML = `<p>🧠 Starting: ${clean(e.data)}</p>`;
     });
 
     es.addEventListener("step", e => {
@@ -134,7 +159,6 @@ function runStream() {
         `;
     });
 
-    // 🔥 FINAL ANSWER UI
     es.addEventListener("final", e => {
         const finalBlock = document.createElement("div");
         finalBlock.className = "final-card";
@@ -147,17 +171,32 @@ function runStream() {
         output.appendChild(finalBlock);
     });
 
-    es.addEventListener("done", e => {
-        output.innerHTML += `<p>✅ ${e.data}</p>`;
+    es.addEventListener("done", () => {
+        output.innerHTML += `<p>✅ Goal completed</p>`;
+        es.close();
+    });
+
+    es.addEventListener("stopped", () => {
+        output.innerHTML += `<p>🛑 Stopped by user</p>`;
         es.close();
     });
 
     es.onerror = () => {
-        output.innerHTML += `<p>❌ Stream ended</p>`;
+        output.innerHTML += `<p>❌ Connection ended</p>`;
         es.close();
     };
+}
+
+
+function stopAgent() {
+    fetch("/stop", { method: "POST" });
+
+    if (es) {
+        es.close();
+    }
 }
 </script>
 
 </body>
 </html>
+

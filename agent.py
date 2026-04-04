@@ -1,34 +1,55 @@
 import json
 import os
 import time
+import uuid
 from openai import OpenAI
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 GOAL = ""
 memory = []
+RUN_ID = None
+STOP_FLAG = False
+
+MEMORY_FILE = "memory.json"
 
 
 # -----------------------
-# 🔹 Core Chat
+# 🧾 MEMORY STORAGE
+# -----------------------
+def save_memory():
+    data = {}
+    if os.path.exists(MEMORY_FILE):
+        with open(MEMORY_FILE, "r") as f:
+            data = json.load(f)
+
+    data[RUN_ID] = {
+        "goal": GOAL,
+        "steps": memory
+    }
+
+    with open(MEMORY_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+# -----------------------
+# 🧠 CORE CHAT
 # -----------------------
 def chat(prompt):
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.6,
-        max_tokens=600,
+        max_tokens=700,
     )
     return response.choices[0].message.content.strip()
 
 
 # -----------------------
-# 🧠 Plan
+# 🧠 PLAN
 # -----------------------
 def generate_plan():
     prompt = f"""
-    You are an autonomous execution agent.
-
     Goal: {GOAL}
 
     Previous steps:
@@ -36,16 +57,15 @@ def generate_plan():
 
     What is the NEXT best step?
 
-    Respond with:
-    - Short title
-    - 3–5 bullet points
-    - Clear and actionable
+    Format:
+    - Title
+    - 3–5 bullets
     """
     return chat(prompt)
 
 
 # -----------------------
-# 🎯 Decide Action
+# 🎯 ACTION
 # -----------------------
 def decide_action(plan):
     prompt = f"""
@@ -57,10 +77,6 @@ def decide_action(plan):
     - analyze
     - search
 
-    IMPORTANT:
-    - Keep input SHORT
-    - Do NOT repeat the plan
-
     Return JSON:
     {{
         "action": "...",
@@ -71,26 +87,27 @@ def decide_action(plan):
     try:
         return json.loads(chat(prompt))
     except:
-        return {"action": "write", "input": "Execute next step"}
+        return {"action": "write", "input": "execute step"}
 
 
 # -----------------------
-# 🛠 Execute Action
+# 🛠 TOOL EXECUTION
 # -----------------------
 def execute_action(action):
-    from tools import run_tool
+    try:
+        from tools import run_tool
+        result = run_tool(action)
+    except Exception as e:
+        result = f"Tool error: {str(e)}"
 
-    result = run_tool(action)
-
-    if isinstance(result, str):
-        if result.lower().startswith("generated content"):
-            result = result.split(":", 1)[-1].strip()
+    if isinstance(result, str) and "Generated content:" in result:
+        result = result.split(":", 1)[-1].strip()
 
     return result
 
 
 # -----------------------
-# 🔍 Reflection
+# 🔍 REFLECT
 # -----------------------
 def reflect(result):
     prompt = f"""
@@ -99,58 +116,79 @@ def reflect(result):
     Result:
     {result}
 
-    Did this move us closer to the goal?
+    Did this help?
 
-    Respond with:
-    - Short evaluation
-    - What to improve next
+    Respond:
+    - short evaluation
+    - improvement
 
-    If goal is complete, say: GOAL ACHIEVED
+    If done, say: GOAL ACHIEVED
     """
     return chat(prompt)
 
 
 # -----------------------
-# 🏁 FINAL ANSWER
+# 🧠 FINAL ANSWER
 # -----------------------
-def generate_final_answer():
+def generate_final():
     prompt = f"""
-    You are completing the goal.
-
     Goal:
     {GOAL}
 
-    Steps taken:
+    Steps:
     {memory}
 
-    Now produce the FINAL RESULT.
-
-    Requirements:
-    - Clear and structured
-    - No repetition
-    - Actionable
-    - Feels COMPLETE
-
-    This should feel like the finished answer to the goal.
+    Produce FINAL COMPLETE RESULT.
+    Clean. Structured. Actionable.
     """
     return chat(prompt)
 
 
 # -----------------------
-# ⚡ STREAM MODE
+# 🧠 SELF IMPROVE
+# -----------------------
+def refine(final):
+    prompt = f"""
+    Improve this result to be clearer, more actionable, and higher quality:
+
+    {final}
+
+    Return improved version only.
+    """
+    return chat(prompt)
+
+
+# -----------------------
+# 🛑 STOP CONTROL
+# -----------------------
+def stop():
+    global STOP_FLAG
+    STOP_FLAG = True
+
+
+# -----------------------
+# ⚡ STREAM
 # -----------------------
 def safe(text):
     return str(text).replace("\n", "\\n")
 
 
-def run_agent_stream(goal, max_steps=3):
-    global GOAL
-    GOAL = goal
-    memory.clear()
+def run_agent_stream(goal, max_steps=5):
+    global GOAL, memory, RUN_ID, STOP_FLAG
 
-    yield f"event: start\ndata: {safe('Starting: ' + goal)}\n\n"
+    GOAL = goal
+    memory = []
+    STOP_FLAG = False
+    RUN_ID = str(uuid.uuid4())
+
+    yield f"event: start\ndata: {safe(goal)}\n\n"
 
     for step in range(max_steps):
+
+        if STOP_FLAG:
+            yield f"event: stopped\ndata: Stopped by user\n\n"
+            return
+
         yield f"event: step\ndata: {step+1}\n\n"
 
         plan = generate_plan()
@@ -173,13 +211,17 @@ def run_agent_stream(goal, max_steps=3):
             "reflection": reflection
         })
 
+        save_memory()
+
         if "goal achieved" in reflection.lower():
             break
 
-        time.sleep(0.4)
+        time.sleep(0.3)
 
-    # 🔥 FINAL OUTPUT
-    final = generate_final_answer()
-    yield f"event: final\ndata: {safe(final)}\n\n"
+    # FINAL
+    final = generate_final()
+    improved = refine(final)
 
-    yield f"event: done\ndata: Goal completed\n\n"
+    yield f"event: final\ndata: {safe(improved)}\n\n"
+    yield f"event: done\ndata: complete\n\n"
+
