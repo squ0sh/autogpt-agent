@@ -58,9 +58,15 @@
             margin-top: 10px;
         }
 
+        .final-card {
+            background: #065f46;
+            padding: 25px;
+            border-radius: 12px;
+            margin-top: 30px;
+        }
+
         p {
             line-height: 1.5;
-            margin: 6px 0;
         }
     </style>
 </head>
@@ -81,6 +87,7 @@ function clean(text) {
     return text
         .replace(/\\n/g, "<br>")
         .replace(/\*\*/g, "")
+        .replace(/###\s*/g, "")
         .replace(/Generated content:/gi, "");
 }
 
@@ -94,6 +101,10 @@ function runStream() {
     const es = new EventSource(`/stream?goal=${encodeURIComponent(goal)}`);
 
     let current = null;
+
+    es.addEventListener("start", e => {
+        output.innerHTML = `<p>🧠 ${clean(e.data)}</p>`;
+    });
 
     es.addEventListener("step", e => {
         current = document.createElement("div");
@@ -121,6 +132,19 @@ function runStream() {
             <div class="label">Reflection</div>
             <p>${clean(e.data)}</p>
         `;
+    });
+
+    // 🔥 FINAL ANSWER UI
+    es.addEventListener("final", e => {
+        const finalBlock = document.createElement("div");
+        finalBlock.className = "final-card";
+
+        finalBlock.innerHTML = `
+            <h2>🏁 Final Answer</h2>
+            <p>${clean(e.data)}</p>
+        `;
+
+        output.appendChild(finalBlock);
     });
 
     es.addEventListener("done", e => {

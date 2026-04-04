@@ -17,7 +17,7 @@ def chat(prompt):
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.6,
-        max_tokens=500,
+        max_tokens=600,
     )
     return response.choices[0].message.content.strip()
 
@@ -27,7 +27,7 @@ def chat(prompt):
 # -----------------------
 def generate_plan():
     prompt = f"""
-    You are an autonomous AI agent.
+    You are an autonomous execution agent.
 
     Goal: {GOAL}
 
@@ -36,10 +36,10 @@ def generate_plan():
 
     What is the NEXT best step?
 
-    Respond clearly with:
+    Respond with:
     - Short title
-    - Bullet points (3–5 max)
-    - Be concise and actionable
+    - 3–5 bullet points
+    - Clear and actionable
     """
     return chat(prompt)
 
@@ -49,8 +49,7 @@ def generate_plan():
 # -----------------------
 def decide_action(plan):
     prompt = f"""
-    Based on this plan:
-
+    Plan:
     {plan}
 
     Choose ONE action:
@@ -83,7 +82,6 @@ def execute_action(action):
 
     result = run_tool(action)
 
-    # Clean duplication
     if isinstance(result, str):
         if result.lower().startswith("generated content"):
             result = result.split(":", 1)[-1].strip()
@@ -108,6 +106,32 @@ def reflect(result):
     - What to improve next
 
     If goal is complete, say: GOAL ACHIEVED
+    """
+    return chat(prompt)
+
+
+# -----------------------
+# 🏁 FINAL ANSWER
+# -----------------------
+def generate_final_answer():
+    prompt = f"""
+    You are completing the goal.
+
+    Goal:
+    {GOAL}
+
+    Steps taken:
+    {memory}
+
+    Now produce the FINAL RESULT.
+
+    Requirements:
+    - Clear and structured
+    - No repetition
+    - Actionable
+    - Feels COMPLETE
+
+    This should feel like the finished answer to the goal.
     """
     return chat(prompt)
 
@@ -150,12 +174,12 @@ def run_agent_stream(goal, max_steps=3):
         })
 
         if "goal achieved" in reflection.lower():
-            yield f"event: done\ndata: Goal achieved\n\n"
-            return
+            break
 
         time.sleep(0.4)
 
-    yield f"event: done\ndata: Finished all steps\n\n"
+    # 🔥 FINAL OUTPUT
+    final = generate_final_answer()
+    yield f"event: final\ndata: {safe(final)}\n\n"
 
-
-
+    yield f"event: done\ndata: Goal completed\n\n"
