@@ -43,32 +43,33 @@ def chat(prompt):
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.5,
-        max_tokens=700,
+        max_tokens=500,
     )
     return response.choices[0].message.content.strip()
 
 
 # -----------------------
-# 🧠 STEP GENERATION
+# 🧠 STEP GENERATION (STRICT)
 # -----------------------
 def generate_plan():
     step_number = len(memory) + 1
 
     prompt = f"""
-You are an execution agent.
+You are an execution agent working step-by-step.
 
 Goal:
 {GOAL}
 
 Previous steps:
-{json.dumps(memory, indent=2)}
+{memory}
 
 Current step: {step_number}
 
 RULES:
 - ONLY generate Step {step_number}
-- Must move the goal forward
-- Be specific and actionable
+- DO NOT generate multiple steps
+- DO NOT summarize the whole plan
+- Each step must move the goal forward
 
 FORMAT:
 Step {step_number}: <short title>
@@ -89,19 +90,18 @@ def decide_action(plan):
 Plan:
 {plan}
 
-Choose the BEST action:
-
+Choose ONE action:
 - write
 - analyze
 - search
-- json
 
 Return JSON:
 {{
     "action": "...",
-    "input": "specific instruction"
+    "input": "short instruction"
 }}
 """
+
     try:
         return json.loads(chat(prompt))
     except:
@@ -118,11 +118,14 @@ def execute_action(action):
     except Exception as e:
         result = f"Tool error: {str(e)}"
 
+    if isinstance(result, str) and "Generated content:" in result:
+        result = result.split(":", 1)[-1].strip()
+
     return result
 
 
 # -----------------------
-# 🔍 REFLECTION
+# 🔍 REFLECTION (NO FAKE COMPLETION)
 # -----------------------
 def reflect(result):
     prompt = f"""
@@ -134,18 +137,24 @@ Result:
 
 Evaluate progress.
 
+RULES:
+- DO NOT say goal is complete unless it truly is
+- Be critical and realistic
+- Suggest next improvement
+
 FORMAT:
 Evaluation:
 <short evaluation>
 
 Next:
-<clear next step>
+<next step improvement>
 """
+
     return chat(prompt)
 
 
 # -----------------------
-# 🧠 GOAL CHECK
+# 🧠 GOAL VALIDATION (THE FIX 🔥)
 # -----------------------
 def is_goal_complete():
     prompt = f"""
@@ -153,32 +162,56 @@ Goal:
 {GOAL}
 
 Steps taken:
-{json.dumps(memory, indent=2)}
+{memory}
 
 Has the goal been FULLY achieved?
 
-Return ONLY: YES or NO
+Be strict.
+
+Return ONLY:
+YES or NO
 """
-    return "yes" in chat(prompt).lower()
+
+    result = chat(prompt).strip().lower()
+    return "yes" in result
 
 
 # -----------------------
-# 🧠 FINAL OUTPUT
+# 🧠 FINAL ANSWER
 # -----------------------
 def generate_final():
-    return chat(f"""
+    prompt = f"""
 Goal:
 {GOAL}
 
 Steps completed:
-{json.dumps(memory, indent=2)}
+{memory}
 
-Produce FINAL RESULT.
-""")
+Produce FINAL COMPLETE RESULT.
+
+Requirements:
+- Clear
+- Structured
+- Actionable
+- Complete
+"""
+
+    return chat(prompt)
 
 
+# -----------------------
+# 🧠 REFINEMENT
+# -----------------------
 def refine(final):
-    return chat(f"Improve this:\n\n{final}")
+    prompt = f"""
+Improve this result:
+
+{final}
+
+Make it clearer, more actionable, and concise.
+"""
+
+    return chat(prompt)
 
 
 # -----------------------
@@ -190,39 +223,48 @@ def stop():
 
 
 # -----------------------
-# 🚀 MAIN LOOP (FIXED)
+# ⚡ STREAM UTIL
+# -----------------------
+def safe(text):
+    return str(text).replace("\n", "\\n")
+
+
+# -----------------------
+# 🚀 MAIN AGENT LOOP
 # -----------------------
 def run_agent_stream(goal, max_steps=6):
     global GOAL, memory, RUN_ID, STOP_FLAG
-
-    from tools import write_file
 
     GOAL = goal
     memory = []
     STOP_FLAG = False
     RUN_ID = str(uuid.uuid4())
 
-    yield f"event: start\ndata: {goal}\n\n"
+    MIN_STEPS = 3
 
-    for step in range(max_steps):
+    yield f"event: start\ndata: {safe(goal)}\n\n"
+
+    step = 0
+
+    while step < max_steps:
 
         if STOP_FLAG:
-            yield "event: stopped\ndata: Stopped\n\n"
+            yield f"event: stopped\ndata: Stopped by user\n\n"
             return
 
         yield f"event: step\ndata: {step+1}\n\n"
 
         plan = generate_plan()
-        yield f"event: plan\ndata: {plan}\n\n"
+        yield f"event: plan\ndata: {safe(plan)}\n\n"
 
         action = decide_action(plan)
-        yield f"event: action\ndata: {json.dumps(action)}\n\n"
+        yield f"event: action\ndata: {safe(json.dumps(action))}\n\n"
 
         result = execute_action(action)
-        yield f"event: result\ndata: {result}\n\n"
+        yield f"event: result\ndata: {safe(result)}\n\n"
 
         reflection = reflect(result)
-        yield f"event: reflection\ndata: {reflection}\n\n"
+        yield f"event: reflection\ndata: {safe(reflection)}\n\n"
 
         memory.append({
             "step": step + 1,
@@ -233,17 +275,18 @@ def run_agent_stream(goal, max_steps=6):
         })
 
         save_memory()
-        time.sleep(0.2)
 
-    # ✅ FINAL OUTPUT
-    final = refine(generate_final())
+        # ✅ REAL completion check
+        if len(memory) >= MIN_STEPS:
+            if is_goal_complete():
+                break
 
-    filename = f"final_{RUN_ID}.txt"
-    write_file(final, filename)
+        step += 1
+        time.sleep(0.3)
 
-    download_url = f"/download/{filename}"
+    # 🧠 FINAL OUTPUT
+    final = generate_final()
+    improved = refine(final)
 
-    yield f"event: final\ndata: {final}\n\n"
-    yield f"event: file\ndata: {download_url}\n\n"
-    yield "event: done\ndata: complete\n\n"
-
+    yield f"event: final\ndata: {safe(improved)}\n\n"
+    yield f"event: done\ndata: Goal completed\n\n"
