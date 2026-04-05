@@ -49,7 +49,7 @@ def chat(prompt):
 
 
 # -----------------------
-# 🧠 STEP GENERATION (STRICT)
+# 🧠 STEP GENERATION
 # -----------------------
 def generate_plan():
     step_number = len(memory) + 1
@@ -68,7 +68,6 @@ Current step: {step_number}
 RULES:
 - ONLY generate Step {step_number}
 - DO NOT generate multiple steps
-- DO NOT summarize the whole plan
 - Each step must move the goal forward
 
 FORMAT:
@@ -125,7 +124,7 @@ def execute_action(action):
 
 
 # -----------------------
-# 🔍 REFLECTION (NO FAKE COMPLETION)
+# 🔍 REFLECTION
 # -----------------------
 def reflect(result):
     prompt = f"""
@@ -138,8 +137,8 @@ Result:
 Evaluate progress.
 
 RULES:
-- DO NOT say goal is complete unless it truly is
-- Be critical and realistic
+- DO NOT say goal complete unless truly done
+- Be realistic
 - Suggest next improvement
 
 FORMAT:
@@ -147,14 +146,13 @@ Evaluation:
 <short evaluation>
 
 Next:
-<next step improvement>
+<next step>
 """
-
     return chat(prompt)
 
 
 # -----------------------
-# 🧠 GOAL VALIDATION (THE FIX 🔥)
+# 🧠 GOAL CHECK
 # -----------------------
 def is_goal_complete():
     prompt = f"""
@@ -166,18 +164,15 @@ Steps taken:
 
 Has the goal been FULLY achieved?
 
-Be strict.
-
 Return ONLY:
 YES or NO
 """
-
     result = chat(prompt).strip().lower()
     return "yes" in result
 
 
 # -----------------------
-# 🧠 FINAL ANSWER
+# 🧠 FINAL OUTPUT
 # -----------------------
 def generate_final():
     prompt = f"""
@@ -189,33 +184,26 @@ Steps completed:
 
 Produce FINAL COMPLETE RESULT.
 
-Requirements:
 - Clear
 - Structured
 - Actionable
-- Complete
 """
-
     return chat(prompt)
 
 
-# -----------------------
-# 🧠 REFINEMENT
-# -----------------------
 def refine(final):
     prompt = f"""
-Improve this result:
+Improve this:
 
 {final}
 
-Make it clearer, more actionable, and concise.
+Make it clearer and more actionable.
 """
-
     return chat(prompt)
 
 
 # -----------------------
-# 🛑 STOP CONTROL
+# 🛑 STOP
 # -----------------------
 def stop():
     global STOP_FLAG
@@ -223,14 +211,14 @@ def stop():
 
 
 # -----------------------
-# ⚡ STREAM UTIL
+# ⚡ STREAM SAFE
 # -----------------------
 def safe(text):
     return str(text).replace("\n", "\\n")
 
 
 # -----------------------
-# 🚀 MAIN AGENT LOOP
+# 🚀 MAIN LOOP
 # -----------------------
 def run_agent_stream(goal, max_steps=6):
     global GOAL, memory, RUN_ID, STOP_FLAG
@@ -239,6 +227,8 @@ def run_agent_stream(goal, max_steps=6):
     memory = []
     STOP_FLAG = False
     RUN_ID = str(uuid.uuid4())
+
+    os.makedirs("outputs", exist_ok=True)
 
     MIN_STEPS = 3
 
@@ -276,7 +266,6 @@ def run_agent_stream(goal, max_steps=6):
 
         save_memory()
 
-        # ✅ REAL completion check
         if len(memory) >= MIN_STEPS:
             if is_goal_complete():
                 break
@@ -284,9 +273,18 @@ def run_agent_stream(goal, max_steps=6):
         step += 1
         time.sleep(0.3)
 
-    # 🧠 FINAL OUTPUT
     final = generate_final()
     improved = refine(final)
 
+    filename = f"final_{RUN_ID}.txt"
+    filepath = os.path.join("outputs", filename)
+
+    with open(filepath, "w") as f:
+        f.write(improved)
+
+    download_url = f"/download/{filename}"
+
     yield f"event: final\ndata: {safe(improved)}\n\n"
+    yield f"event: file\ndata: {safe(download_url)}\n\n"
     yield f"event: done\ndata: Goal completed\n\n"
+

@@ -1,90 +1,56 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>AI Agent Dashboard</title>
+<title>AI Agent Dashboard</title>
 
-    <style>
-        body {
-            font-family: Arial;
-            background: linear-gradient(to bottom, #0f172a, #1e293b);
-            color: white;
-            padding: 40px;
-            max-width: 900px;
-            margin: auto;
-        }
+<style>
+body {
+    font-family: Arial;
+    background: linear-gradient(to bottom, #0f172a, #1e293b);
+    color: white;
+    padding: 40px;
+    max-width: 900px;
+    margin: auto;
+}
 
-        h1 {
-            text-align: center;
-        }
+input {
+    width: 100%;
+    padding: 12px;
+    border-radius: 8px;
+    border: none;
+    margin-top: 20px;
+}
 
-        input {
-            width: 100%;
-            padding: 12px;
-            border-radius: 8px;
-            border: none;
-            margin-top: 20px;
-            font-size: 16px;
-        }
+button {
+    padding: 12px 20px;
+    border-radius: 8px;
+    border: none;
+    margin-right: 10px;
+    cursor: pointer;
+}
 
-        .buttons {
-            margin-top: 15px;
-        }
+.run-btn { background: #16a34a; }
+.stop-btn { background: #dc2626; }
 
-        button {
-            padding: 12px 20px;
-            border-radius: 8px;
-            border: none;
-            font-size: 16px;
-            cursor: pointer;
-            margin-right: 10px;
-        }
+.step-card {
+    background: #1e293b;
+    padding: 20px;
+    border-radius: 12px;
+    margin-top: 20px;
+}
 
-        .run-btn {
-            background: #16a34a;
-            color: white;
-        }
+.label {
+    color: #60a5fa;
+    font-weight: bold;
+}
 
-        .run-btn:hover {
-            background: #15803d;
-        }
-
-        .stop-btn {
-            background: #dc2626;
-            color: white;
-        }
-
-        .stop-btn:hover {
-            background: #b91c1c;
-        }
-
-        #output {
-            margin-top: 40px;
-        }
-
-        .step-card {
-            background: #1e293b;
-            padding: 20px;
-            border-radius: 12px;
-            margin-bottom: 20px;
-        }
-
-        .label {
-            color: #60a5fa;
-            font-weight: bold;
-            margin-top: 10px;
-        }
-
-        .final-card {
-            background: #065f46;
-            padding: 25px;
-            border-radius: 12px;
-            margin-top: 30px;
-        }
-
-        p {
-            line-height: 1.5;
-        }
-    </style>
+.final-card {
+    background: #065f46;
+    padding: 25px;
+    border-radius: 12px;
+    margin-top: 30px;
+}
+</style>
 </head>
 
 <body>
@@ -93,42 +59,34 @@
 
 <input id="goal" placeholder="Enter your goal..." />
 
-<div class="buttons">
-    <button class="run-btn" onclick="runStream()">⚡ Run Agent</button>
-    <button class="stop-btn" onclick="stopAgent()">🛑 Stop</button>
-</div>
+<br><br>
+
+<button class="run-btn" onclick="runStream()">⚡ Run Agent</button>
+<button class="stop-btn" onclick="stopAgent()">🛑 Stop</button>
 
 <div id="output"></div>
 
 <script>
-let es = null;
+let es;
 
 function clean(text) {
-    if (!text) return "";
-
-    return text
-        .replace(/\\n/g, "<br>")
-        .replace(/\*\*/g, "")
-        .replace(/###/g, "")
-        .replace(/Generated content:/gi, "");
+    return text.replace(/\\n/g, "<br>");
 }
-
 
 function runStream() {
     const goal = document.getElementById("goal").value;
     const output = document.getElementById("output");
 
-    output.innerHTML = "⚡ Running agent...";
+    output.innerHTML = "";
 
-    // Close existing stream if any
     if (es) es.close();
 
     es = new EventSource(`/stream?goal=${encodeURIComponent(goal)}`);
 
-    let current = null;
+    let current;
 
     es.addEventListener("start", e => {
-        output.innerHTML = `<p>🧠 Starting: ${clean(e.data)}</p>`;
+        output.innerHTML += `<p>🧠 Starting: ${clean(e.data)}</p>`;
     });
 
     es.addEventListener("step", e => {
@@ -139,63 +97,54 @@ function runStream() {
     });
 
     es.addEventListener("plan", e => {
-        current.innerHTML += `
-            <div class="label">Plan</div>
-            <p>${clean(e.data)}</p>
-        `;
+        current.innerHTML += `<div class="label">Plan</div><p>${clean(e.data)}</p>`;
     });
 
     es.addEventListener("result", e => {
-        current.innerHTML += `
-            <div class="label">Result</div>
-            <p>${clean(e.data)}</p>
-        `;
+        current.innerHTML += `<div class="label">Result</div><p>${clean(e.data)}</p>`;
     });
 
     es.addEventListener("reflection", e => {
-        current.innerHTML += `
-            <div class="label">Reflection</div>
-            <p>${clean(e.data)}</p>
-        `;
+        current.innerHTML += `<div class="label">Reflection</div><p>${clean(e.data)}</p>`;
     });
 
     es.addEventListener("final", e => {
-        const finalBlock = document.createElement("div");
-        finalBlock.className = "final-card";
+        const div = document.createElement("div");
+        div.className = "final-card";
+        div.innerHTML = `<h2>🏁 Final Answer</h2><p>${clean(e.data)}</p>`;
+        output.appendChild(div);
+    });
 
-        finalBlock.innerHTML = `
-            <h2>🏁 Final Answer</h2>
-            <p>${clean(e.data)}</p>
-        `;
+    es.addEventListener("file", e => {
+        const link = document.createElement("a");
+        link.href = e.data;
+        link.download = "";
+        link.innerText = "📥 Download Final Output";
 
-        output.appendChild(finalBlock);
+        link.style.display = "block";
+        link.style.marginTop = "15px";
+        link.style.padding = "12px";
+        link.style.background = "#22c55e";
+        link.style.color = "black";
+        link.style.borderRadius = "8px";
+        link.style.textAlign = "center";
+        link.style.fontWeight = "bold";
+
+        output.appendChild(link);
     });
 
     es.addEventListener("done", () => {
-        output.innerHTML += `<p>✅ Goal completed</p>`;
+        output.innerHTML += "<p>✅ Goal completed</p>";
         es.close();
     });
-
-    es.addEventListener("stopped", () => {
-        output.innerHTML += `<p>🛑 Stopped by user</p>`;
-        es.close();
-    });
-
-    es.onerror = () => {
-        output.innerHTML += `<p>❌ Connection ended</p>`;
-        es.close();
-    };
 }
-
 
 function stopAgent() {
     fetch("/stop", { method: "POST" });
-
-    if (es) {
-        es.close();
-    }
+    if (es) es.close();
 }
 </script>
 
 </body>
 </html>
+
