@@ -3,4 +3,4 @@ python-dotenv
 tiktoken
 colorama
 flask
-#force rebuild
+duckduckgo-search
