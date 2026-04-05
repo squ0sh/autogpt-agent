@@ -80,9 +80,17 @@
       font-weight: bold;
     }
 
-    a {
+    .download a {
       color: black;
       text-decoration: none;
+    }
+
+    /* ✅ FIX: Proper wrapping */
+    pre {
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+      margin: 0;
     }
   </style>
 </head>
@@ -110,10 +118,6 @@
       let currentStepDiv = null;
 
       eventSource = new EventSource(`/run?goal=${encodeURIComponent(goal)}`);
-
-      eventSource.onmessage = function (event) {
-        console.log("message:", event.data);
-      };
 
       function createStep(stepNum) {
         const div = document.createElement("div");
@@ -162,15 +166,24 @@
       eventSource.addEventListener("final", (e) => {
         const div = document.createElement("div");
         div.className = "final";
-        div.innerHTML = `🏁 <strong>Final Answer</strong><br><br><pre>${e.data}</pre>`;
+        div.innerHTML = `
+          🏁 <strong>Final Answer</strong><br><br>
+          <pre>${e.data}</pre>
+        `;
         output.appendChild(div);
       });
 
-      // ✅ DOWNLOAD LINK
+      // ✅ DOWNLOAD BUTTON (FIXED)
       eventSource.addEventListener("file", (e) => {
         const div = document.createElement("div");
         div.className = "download";
-        div.innerHTML = e.data;
+
+        div.innerHTML = `
+          📥 <a href="${e.data}" target="_blank">
+            Download Final Output
+          </a>
+        `;
+
         output.appendChild(div);
       });
 
@@ -191,3 +204,4 @@
   </script>
 </body>
 </html>
+

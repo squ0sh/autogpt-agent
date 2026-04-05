@@ -67,7 +67,6 @@ Current step: {step_number}
 
 RULES:
 - ONLY generate Step {step_number}
-- Do NOT generate multiple steps
 - Must move the goal forward
 - Be specific and actionable
 
@@ -92,10 +91,10 @@ Plan:
 
 Choose the BEST action:
 
-- write → create content
-- analyze → evaluate something
-- search → research info
-- json → structured data
+- write
+- analyze
+- search
+- json
 
 Return JSON:
 {{
@@ -103,7 +102,6 @@ Return JSON:
     "input": "specific instruction"
 }}
 """
-
     try:
         return json.loads(chat(prompt))
     except:
@@ -136,10 +134,6 @@ Result:
 
 Evaluate progress.
 
-RULES:
-- Be realistic
-- Do NOT say goal complete unless fully done
-
 FORMAT:
 Evaluation:
 <short evaluation>
@@ -147,7 +141,6 @@ Evaluation:
 Next:
 <clear next step>
 """
-
     return chat(prompt)
 
 
@@ -164,21 +157,16 @@ Steps taken:
 
 Has the goal been FULLY achieved?
 
-Be strict.
-
-Return ONLY:
-YES or NO
+Return ONLY: YES or NO
 """
-
-    result = chat(prompt).strip().lower()
-    return "yes" in result
+    return "yes" in chat(prompt).lower()
 
 
 # -----------------------
 # 🧠 FINAL OUTPUT
 # -----------------------
 def generate_final():
-    prompt = f"""
+    return chat(f"""
 Goal:
 {GOAL}
 
@@ -186,30 +174,11 @@ Steps completed:
 {json.dumps(memory, indent=2)}
 
 Produce FINAL RESULT.
-
-Requirements:
-- Structured
-- Clear
-- Actionable
-- Clean (no fluff)
-"""
-
-    return chat(prompt)
+""")
 
 
-# -----------------------
-# 🧠 REFINEMENT
-# -----------------------
 def refine(final):
-    prompt = f"""
-Improve this result:
-
-{final}
-
-Make it clearer, tighter, and more actionable.
-"""
-
-    return chat(prompt)
+    return chat(f"Improve this:\n\n{final}")
 
 
 # -----------------------
@@ -221,50 +190,39 @@ def stop():
 
 
 # -----------------------
-# ⚡ STREAM SAFE
-# -----------------------
-def safe(text):
-    return str(text).replace("\n", "\\n")
-
-
-# -----------------------
-# 🚀 MAIN LOOP
+# 🚀 MAIN LOOP (FIXED)
 # -----------------------
 def run_agent_stream(goal, max_steps=6):
     global GOAL, memory, RUN_ID, STOP_FLAG
 
-    from tools import write_file  # only used for FINAL output
+    from tools import write_file
 
     GOAL = goal
     memory = []
     STOP_FLAG = False
     RUN_ID = str(uuid.uuid4())
 
-    MIN_STEPS = 3
+    yield f"event: start\ndata: {goal}\n\n"
 
-    yield f"event: start\ndata: {safe(goal)}\n\n"
-
-    step = 0
-
-    while step < max_steps:
+    for step in range(max_steps):
 
         if STOP_FLAG:
-            yield f"event: stopped\ndata: Stopped by user\n\n"
+            yield "event: stopped\ndata: Stopped\n\n"
             return
 
         yield f"event: step\ndata: {step+1}\n\n"
 
         plan = generate_plan()
-        yield f"event: plan\ndata: {safe(plan)}\n\n"
+        yield f"event: plan\ndata: {plan}\n\n"
 
         action = decide_action(plan)
-        yield f"event: action\ndata: {safe(json.dumps(action))}\n\n"
+        yield f"event: action\ndata: {json.dumps(action)}\n\n"
 
         result = execute_action(action)
-        yield f"event: result\ndata: {safe(result)}\n\n"
+        yield f"event: result\ndata: {result}\n\n"
 
         reflection = reflect(result)
-        yield f"event: reflection\ndata: {safe(reflection)}\n\n"
+        yield f"event: reflection\ndata: {reflection}\n\n"
 
         memory.append({
             "step": step + 1,
@@ -275,23 +233,17 @@ def run_agent_stream(goal, max_steps=6):
         })
 
         save_memory()
+        time.sleep(0.2)
 
-        if len(memory) >= MIN_STEPS:
-            if is_goal_complete():
-                break
+    # ✅ FINAL OUTPUT
+    final = refine(generate_final())
 
-        step += 1
-        time.sleep(0.3)
+    filename = f"final_{RUN_ID}.txt"
+    write_file(final, filename)
 
-    # -----------------------
-    # 🏁 FINAL OUTPUT + FILE
-    # -----------------------
-    final = generate_final()
-    improved = refine(final)
+    download_url = f"/download/{filename}"
 
-    final_filename = f"final_{RUN_ID}.txt"
-    file_result = write_file(improved, final_filename)
+    yield f"event: final\ndata: {final}\n\n"
+    yield f"event: file\ndata: {download_url}\n\n"
+    yield "event: done\ndata: complete\n\n"
 
-    yield f"event: final\ndata: {safe(improved)}\n\n"
-    yield f"event: file\ndata: {safe(file_result)}\n\n"
-    yield f"event: done\ndata: Goal completed\n\n"
