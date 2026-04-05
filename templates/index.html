@@ -1,202 +1,193 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>AI Agent Dashboard</title>
+  <meta charset="UTF-8" />
+  <title>AI Agent Dashboard</title>
 
-    <style>
-        body {
-            font-family: Arial;
-            background: linear-gradient(to bottom, #0f172a, #1e293b);
-            color: white;
-            padding: 40px;
-            max-width: 900px;
-            margin: auto;
-        }
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #0f172a;
+      color: white;
+      margin: 0;
+      padding: 20px;
+    }
 
-        h1 {
-            text-align: center;
-        }
+    h1 {
+      text-align: center;
+    }
 
-        input {
-            width: 100%;
-            padding: 12px;
-            border-radius: 8px;
-            border: none;
-            margin-top: 20px;
-            font-size: 16px;
-        }
+    .container {
+      max-width: 900px;
+      margin: auto;
+    }
 
-        .buttons {
-            margin-top: 15px;
-        }
+    input {
+      width: 100%;
+      padding: 12px;
+      border-radius: 8px;
+      border: none;
+      margin-bottom: 10px;
+      font-size: 16px;
+    }
 
-        button {
-            padding: 12px 20px;
-            border-radius: 8px;
-            border: none;
-            font-size: 16px;
-            cursor: pointer;
-            margin-right: 10px;
-        }
+    button {
+      padding: 10px 16px;
+      border-radius: 8px;
+      border: none;
+      font-weight: bold;
+      cursor: pointer;
+      margin-right: 10px;
+    }
 
-        .run-btn {
-            background: #16a34a;
-            color: white;
-        }
+    .run-btn {
+      background: #22c55e;
+      color: black;
+    }
 
-        .run-btn:hover {
-            background: #15803d;
-        }
+    .stop-btn {
+      background: #ef4444;
+      color: white;
+    }
 
-        .stop-btn {
-            background: #dc2626;
-            color: white;
-        }
+    .card {
+      background: #1e293b;
+      padding: 16px;
+      border-radius: 12px;
+      margin-top: 16px;
+    }
 
-        .stop-btn:hover {
-            background: #b91c1c;
-        }
+    .label {
+      color: #60a5fa;
+      font-weight: bold;
+      margin-top: 10px;
+    }
 
-        #output {
-            margin-top: 40px;
-        }
+    .final {
+      background: #065f46;
+      padding: 20px;
+      border-radius: 12px;
+      margin-top: 20px;
+    }
 
-        .step-card {
-            background: #1e293b;
-            padding: 20px;
-            border-radius: 12px;
-            margin-bottom: 20px;
-        }
+    .download {
+      margin-top: 15px;
+      padding: 12px;
+      background: #22c55e;
+      color: black;
+      border-radius: 8px;
+      text-align: center;
+      font-weight: bold;
+    }
 
-        .label {
-            color: #60a5fa;
-            font-weight: bold;
-            margin-top: 10px;
-        }
-
-        .final-card {
-            background: #065f46;
-            padding: 25px;
-            border-radius: 12px;
-            margin-top: 30px;
-        }
-
-        p {
-            line-height: 1.5;
-        }
-    </style>
+    a {
+      color: black;
+      text-decoration: none;
+    }
+  </style>
 </head>
 
 <body>
+  <div class="container">
+    <h1>🧠 AI Agent Dashboard</h1>
 
-<h1>🧠 AI Agent Dashboard</h1>
+    <input id="goal" placeholder="Enter your goal..." />
 
-<input id="goal" placeholder="Enter your goal..." />
-
-<div class="buttons">
-    <button class="run-btn" onclick="runStream()">⚡ Run Agent</button>
+    <button class="run-btn" onclick="runAgent()">⚡ Run Agent</button>
     <button class="stop-btn" onclick="stopAgent()">🛑 Stop</button>
-</div>
 
-<div id="output"></div>
+    <div id="output"></div>
+  </div>
 
-<script>
-let es = null;
+  <script>
+    let eventSource;
 
-function clean(text) {
-    if (!text) return "";
+    function runAgent() {
+      const goal = document.getElementById("goal").value;
+      const output = document.getElementById("output");
 
-    return text
-        .replace(/\\n/g, "<br>")
-        .replace(/\*\*/g, "")
-        .replace(/###/g, "")
-        .replace(/Generated content:/gi, "");
-}
+      output.innerHTML = "";
+      let currentStepDiv = null;
 
+      eventSource = new EventSource(`/run?goal=${encodeURIComponent(goal)}`);
 
-function runStream() {
-    const goal = document.getElementById("goal").value;
-    const output = document.getElementById("output");
+      eventSource.onmessage = function (event) {
+        console.log("message:", event.data);
+      };
 
-    output.innerHTML = "⚡ Running agent...";
+      function createStep(stepNum) {
+        const div = document.createElement("div");
+        div.className = "card";
+        div.innerHTML = `<h3>Step ${stepNum}</h3>`;
+        output.appendChild(div);
+        return div;
+      }
 
-    // Close existing stream if any
-    if (es) es.close();
+      eventSource.addEventListener("start", (e) => {
+        const div = document.createElement("div");
+        div.className = "card";
+        div.innerHTML = `🧠 Starting: ${e.data}`;
+        output.appendChild(div);
+      });
 
-    es = new EventSource(`/stream?goal=${encodeURIComponent(goal)}`);
+      eventSource.addEventListener("step", (e) => {
+        currentStepDiv = createStep(e.data);
+      });
 
-    let current = null;
+      eventSource.addEventListener("plan", (e) => {
+        const el = document.createElement("div");
+        el.innerHTML = `<div class="label">Plan</div><pre>${e.data}</pre>`;
+        currentStepDiv.appendChild(el);
+      });
 
-    es.addEventListener("start", e => {
-        output.innerHTML = `<p>🧠 Starting: ${clean(e.data)}</p>`;
-    });
+      eventSource.addEventListener("action", (e) => {
+        const el = document.createElement("div");
+        el.innerHTML = `<div class="label">Action</div><pre>${e.data}</pre>`;
+        currentStepDiv.appendChild(el);
+      });
 
-    es.addEventListener("step", e => {
-        current = document.createElement("div");
-        current.className = "step-card";
-        current.innerHTML = `<h3>Step ${e.data}</h3>`;
-        output.appendChild(current);
-    });
+      eventSource.addEventListener("result", (e) => {
+        const el = document.createElement("div");
+        el.innerHTML = `<div class="label">Result</div><pre>${e.data}</pre>`;
+        currentStepDiv.appendChild(el);
+      });
 
-    es.addEventListener("plan", e => {
-        current.innerHTML += `
-            <div class="label">Plan</div>
-            <p>${clean(e.data)}</p>
-        `;
-    });
+      eventSource.addEventListener("reflection", (e) => {
+        const el = document.createElement("div");
+        el.innerHTML = `<div class="label">Reflection</div><pre>${e.data}</pre>`;
+        currentStepDiv.appendChild(el);
+      });
 
-    es.addEventListener("result", e => {
-        current.innerHTML += `
-            <div class="label">Result</div>
-            <p>${clean(e.data)}</p>
-        `;
-    });
+      // ✅ FINAL OUTPUT
+      eventSource.addEventListener("final", (e) => {
+        const div = document.createElement("div");
+        div.className = "final";
+        div.innerHTML = `🏁 <strong>Final Answer</strong><br><br><pre>${e.data}</pre>`;
+        output.appendChild(div);
+      });
 
-    es.addEventListener("reflection", e => {
-        current.innerHTML += `
-            <div class="label">Reflection</div>
-            <p>${clean(e.data)}</p>
-        `;
-    });
+      // ✅ DOWNLOAD LINK
+      eventSource.addEventListener("file", (e) => {
+        const div = document.createElement("div");
+        div.className = "download";
+        div.innerHTML = e.data;
+        output.appendChild(div);
+      });
 
-    es.addEventListener("final", e => {
-        const finalBlock = document.createElement("div");
-        finalBlock.className = "final-card";
+      eventSource.addEventListener("done", () => {
+        eventSource.close();
+      });
 
-        finalBlock.innerHTML = `
-            <h2>🏁 Final Answer</h2>
-            <p>${clean(e.data)}</p>
-        `;
-
-        output.appendChild(finalBlock);
-    });
-
-    es.addEventListener("done", () => {
-        output.innerHTML += `<p>✅ Goal completed</p>`;
-        es.close();
-    });
-
-    es.addEventListener("stopped", () => {
-        output.innerHTML += `<p>🛑 Stopped by user</p>`;
-        es.close();
-    });
-
-    es.onerror = () => {
-        output.innerHTML += `<p>❌ Connection ended</p>`;
-        es.close();
-    };
-}
-
-
-function stopAgent() {
-    fetch("/stop", { method: "POST" });
-
-    if (es) {
-        es.close();
+      eventSource.onerror = () => {
+        console.error("Stream error");
+        eventSource.close();
+      };
     }
-}
-</script>
 
+    function stopAgent() {
+      fetch("/stop");
+      if (eventSource) eventSource.close();
+    }
+  </script>
 </body>
 </html>
-

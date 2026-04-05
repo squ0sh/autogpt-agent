@@ -60,7 +60,7 @@ You are an execution agent.
 Goal:
 {GOAL}
 
-Previous steps (structured progress):
+Previous steps:
 {json.dumps(memory, indent=2)}
 
 Current step: {step_number}
@@ -83,7 +83,7 @@ Step {step_number}: <short title>
 
 
 # -----------------------
-# 🎯 ACTION SELECTION (UPGRADED)
+# 🎯 ACTION SELECTION
 # -----------------------
 def decide_action(plan):
     prompt = f"""
@@ -92,12 +92,10 @@ Plan:
 
 Choose the BEST action:
 
-- write → create content/file
+- write → create content
 - analyze → evaluate something
 - search → research info
 - json → structured data
-
-Make it practical.
 
 Return JSON:
 {{
@@ -141,7 +139,6 @@ Evaluate progress.
 RULES:
 - Be realistic
 - Do NOT say goal complete unless fully done
-- Focus on what was achieved
 
 FORMAT:
 Evaluation:
@@ -155,7 +152,7 @@ Next:
 
 
 # -----------------------
-# 🧠 GOAL VALIDATION (REAL)
+# 🧠 GOAL CHECK
 # -----------------------
 def is_goal_complete():
     prompt = f"""
@@ -194,7 +191,7 @@ Requirements:
 - Structured
 - Clear
 - Actionable
-- Based on real outputs
+- Clean (no fluff)
 """
 
     return chat(prompt)
@@ -235,6 +232,8 @@ def safe(text):
 # -----------------------
 def run_agent_stream(goal, max_steps=6):
     global GOAL, memory, RUN_ID, STOP_FLAG
+
+    from tools import write_file  # only used for FINAL output
 
     GOAL = goal
     memory = []
@@ -277,7 +276,6 @@ def run_agent_stream(goal, max_steps=6):
 
         save_memory()
 
-        # ✅ REAL completion check
         if len(memory) >= MIN_STEPS:
             if is_goal_complete():
                 break
@@ -285,9 +283,15 @@ def run_agent_stream(goal, max_steps=6):
         step += 1
         time.sleep(0.3)
 
-    # 🧠 FINAL OUTPUT
+    # -----------------------
+    # 🏁 FINAL OUTPUT + FILE
+    # -----------------------
     final = generate_final()
     improved = refine(final)
 
+    final_filename = f"final_{RUN_ID}.txt"
+    file_result = write_file(improved, final_filename)
+
     yield f"event: final\ndata: {safe(improved)}\n\n"
+    yield f"event: file\ndata: {safe(file_result)}\n\n"
     yield f"event: done\ndata: Goal completed\n\n"
