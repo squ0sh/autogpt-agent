@@ -36,7 +36,7 @@ def save_memory():
 
 
 # -----------------------
-# 🧠 CORE CHAT (FIXED TOKENS)
+# 🧠 CORE CHAT
 # -----------------------
 def chat(prompt, max_tokens=1200):
     response = client.chat.completions.create(
@@ -67,7 +67,6 @@ Current step: {step_number}
 
 RULES:
 - ONLY generate Step {step_number}
-- DO NOT generate multiple steps
 - Each step must move the goal forward
 
 FORMAT:
@@ -82,7 +81,7 @@ Step {step_number}: <short title>
 
 
 # -----------------------
-# 🎯 ACTION SELECTION
+# 🎯 ACTION SELECTION (UPDATED 🔥)
 # -----------------------
 def decide_action(plan):
     prompt = f"""
@@ -93,11 +92,19 @@ Choose ONE action:
 - write
 - analyze
 - search
+- save_file
+- save_structured
+
+Guidelines:
+- Use "search" for real-world info
+- Use "save_file" for simple notes
+- Use "save_structured" for important outputs
+- Prefer saving useful outputs
 
 Return JSON:
 {{
     "action": "...",
-    "input": "short instruction"
+    "input": "short instruction or content"
 }}
 """
 
@@ -136,10 +143,7 @@ Result:
 
 Evaluate progress.
 
-RULES:
-- DO NOT say goal complete unless truly done
-- Be realistic
-- Suggest next improvement
+Be realistic.
 
 FORMAT:
 Evaluation:
@@ -159,20 +163,20 @@ def is_goal_complete():
 Goal:
 {GOAL}
 
-Steps taken:
+Steps:
 {memory}
 
-Has the goal been FULLY achieved?
+Is the goal fully achieved?
 
-Return ONLY:
+Answer ONLY:
 YES or NO
 """
-    result = chat(prompt, max_tokens=10).strip().lower()
+    result = chat(prompt, max_tokens=10).lower()
     return "yes" in result
 
 
 # -----------------------
-# 🧠 FINAL OUTPUT (FIXED 🔥)
+# 🧠 FINAL OUTPUT
 # -----------------------
 def generate_final():
     steps_text = ""
@@ -194,21 +198,18 @@ Reflection:
 """
 
     prompt = f"""
-You are compiling a FINAL COMPLETE EXECUTION REPORT.
+Create a COMPLETE FINAL REPORT.
 
 Goal:
 {GOAL}
 
-Execution Steps:
+Execution:
 {steps_text}
 
-INSTRUCTIONS:
-- Reconstruct ALL steps clearly
-- DO NOT skip steps
-- DO NOT overly summarize
-- Keep full detail
-- Expand for clarity if needed
-- Ensure ALL steps are present
+RULES:
+- Include ALL steps
+- Do NOT summarize away details
+- Keep structured
 
 FORMAT:
 
@@ -217,31 +218,21 @@ FORMAT:
 ## Goal
 ...
 
-## Step 1
+## Steps
 ...
-
-## Step 2
-...
-
-(continue through all steps)
 """
 
     return chat(prompt, max_tokens=1800)
 
 
 # -----------------------
-# 🧠 SAFE REFINE (NO TRUNCATION)
+# 🧠 REFINE
 # -----------------------
 def refine(final):
     prompt = f"""
 Improve clarity WITHOUT removing content:
 
 {final}
-
-Rules:
-- DO NOT shorten
-- DO NOT remove steps
-- Only improve readability
 """
     return chat(prompt, max_tokens=1800)
 
@@ -262,7 +253,7 @@ def safe(text):
 
 
 # -----------------------
-# 🚀 MAIN LOOP
+# 🚀 MAIN LOOP (UPDATED 🔥)
 # -----------------------
 def run_agent_stream(goal, max_steps=6):
     global GOAL, memory, RUN_ID, STOP_FLAG
@@ -297,6 +288,17 @@ def run_agent_stream(goal, max_steps=6):
         result = execute_action(action)
         yield f"event: result\ndata: {safe(result)}\n\n"
 
+        # 🔥 AUTO-SAVE IMPORTANT RESULTS
+        if action["action"] in ["write", "analyze"]:
+            try:
+                from tools import run_tool
+                run_tool({
+                    "action": "save_file",
+                    "input": result[:200]  # avoid huge filenames
+                })
+            except:
+                pass
+
         reflection = reflect(result)
         yield f"event: reflection\ndata: {safe(reflection)}\n\n"
 
@@ -321,7 +323,13 @@ def run_agent_stream(goal, max_steps=6):
     final = generate_final()
     improved = refine(final)
 
-    # ✅ SAVE FILE (NOW FULLY COMPLETE)
+    # 🔥 SAVE FINAL (STRUCTURED)
+    from tools import run_tool
+    run_tool({
+        "action": "save_structured",
+        "input": improved
+    })
+
     filename = f"final_{RUN_ID}.txt"
     filepath = os.path.join("outputs", filename)
 
