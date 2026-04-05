@@ -36,14 +36,14 @@ def save_memory():
 
 
 # -----------------------
-# 🧠 CORE CHAT
+# 🧠 CORE CHAT (FIXED TOKENS)
 # -----------------------
-def chat(prompt):
+def chat(prompt, max_tokens=1200):
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.5,
-        max_tokens=500,
+        max_tokens=max_tokens,
     )
     return response.choices[0].message.content.strip()
 
@@ -78,7 +78,7 @@ Step {step_number}: <short title>
 - action 3
 """
 
-    return chat(prompt)
+    return chat(prompt, max_tokens=600)
 
 
 # -----------------------
@@ -102,7 +102,7 @@ Return JSON:
 """
 
     try:
-        return json.loads(chat(prompt))
+        return json.loads(chat(prompt, max_tokens=300))
     except:
         return {"action": "write", "input": "execute next step"}
 
@@ -148,7 +148,7 @@ Evaluation:
 Next:
 <next step>
 """
-    return chat(prompt)
+    return chat(prompt, max_tokens=600)
 
 
 # -----------------------
@@ -167,39 +167,83 @@ Has the goal been FULLY achieved?
 Return ONLY:
 YES or NO
 """
-    result = chat(prompt).strip().lower()
+    result = chat(prompt, max_tokens=10).strip().lower()
     return "yes" in result
 
 
 # -----------------------
-# 🧠 FINAL OUTPUT
+# 🧠 FINAL OUTPUT (FIXED 🔥)
 # -----------------------
 def generate_final():
+    steps_text = ""
+
+    for step in memory:
+        steps_text += f"""
+Step {step['step']}
+
+Plan:
+{step['plan']}
+
+Result:
+{step['result']}
+
+Reflection:
+{step['reflection']}
+
+---
+"""
+
     prompt = f"""
+You are compiling a FINAL COMPLETE EXECUTION REPORT.
+
 Goal:
 {GOAL}
 
-Steps completed:
-{memory}
+Execution Steps:
+{steps_text}
 
-Produce FINAL COMPLETE RESULT.
+INSTRUCTIONS:
+- Reconstruct ALL steps clearly
+- DO NOT skip steps
+- DO NOT overly summarize
+- Keep full detail
+- Expand for clarity if needed
+- Ensure ALL steps are present
 
-- Clear
-- Structured
-- Actionable
+FORMAT:
+
+# Final Result
+
+## Goal
+...
+
+## Step 1
+...
+
+## Step 2
+...
+
+(continue through all steps)
 """
-    return chat(prompt)
+
+    return chat(prompt, max_tokens=1800)
 
 
+# -----------------------
+# 🧠 SAFE REFINE (NO TRUNCATION)
+# -----------------------
 def refine(final):
     prompt = f"""
-Improve this:
+Improve clarity WITHOUT removing content:
 
 {final}
 
-Make it clearer and more actionable.
+Rules:
+- DO NOT shorten
+- DO NOT remove steps
+- Only improve readability
 """
-    return chat(prompt)
+    return chat(prompt, max_tokens=1800)
 
 
 # -----------------------
@@ -273,9 +317,11 @@ def run_agent_stream(goal, max_steps=6):
         step += 1
         time.sleep(0.3)
 
+    # 🧠 FINAL OUTPUT
     final = generate_final()
     improved = refine(final)
 
+    # ✅ SAVE FILE (NOW FULLY COMPLETE)
     filename = f"final_{RUN_ID}.txt"
     filepath = os.path.join("outputs", filename)
 
@@ -287,4 +333,3 @@ def run_agent_stream(goal, max_steps=6):
     yield f"event: final\ndata: {safe(improved)}\n\n"
     yield f"event: file\ndata: {safe(download_url)}\n\n"
     yield f"event: done\ndata: Goal completed\n\n"
-
