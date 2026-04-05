@@ -3,10 +3,10 @@ import json
 from datetime import datetime
 
 # -----------------------
-# 🌐 SAFE IMPORT
+# 🌐 UPDATED SEARCH IMPORT
 # -----------------------
 try:
-    from duckduckgo_search import DDGS
+    from ddgs import DDGS
 except ImportError:
     DDGS = None
 
@@ -18,41 +18,47 @@ def run_tool(action):
     act = action.get("action")
     inp = action.get("input")
 
-    # Ensure workspace exists
     os.makedirs("workspace", exist_ok=True)
 
     # -----------------------
     # ✍️ WRITE
     # -----------------------
     if act == "write":
-        return f"Generated content: {str(inp)}"
+        return f"Generated content:\n{str(inp)}"
 
     # -----------------------
     # 🧠 ANALYZE
     # -----------------------
     elif act == "analyze":
-        return f"Analysis: {str(inp)}"
+        return f"Analysis:\n{str(inp)}"
 
     # -----------------------
-    # 🌐 REAL SEARCH 🔥
+    # 🌐 SEARCH (UPGRADED)
     # -----------------------
     elif act == "search":
         if DDGS is None:
-            return "Search tool not installed. Install duckduckgo-search."
+            return "Search tool not installed. Run: pip install ddgs"
 
         try:
+            query = str(inp).strip()
+
+            # 🔥 AUTO-IMPROVE WEAK QUERIES
+            if len(query.split()) < 4:
+                query += " detailed explanation examples trends"
+
             results_text = []
 
             with DDGS() as ddgs:
-                results = ddgs.text(str(inp), max_results=5)
+                results = ddgs.text(query, max_results=5)
 
                 for r in results:
                     results_text.append(
                         f"{r.get('title')}\n{r.get('href')}\n{r.get('body')}"
                     )
 
+            # 🔥 FALLBACK IF EMPTY
             if not results_text:
-                return "No search results found."
+                return f"No strong results found.\nRefined query used: {query}"
 
             return "Search results:\n\n" + "\n\n---\n\n".join(results_text)
 
@@ -84,14 +90,14 @@ Content:
             return f"File error: {str(e)}"
 
     # -----------------------
-    # 📁 STRUCTURED SAVE 🔥🔥
+    # 📁 STRUCTURED SAVE
     # -----------------------
     elif act == "save_structured":
         try:
             filename = f"structured_{int(datetime.now().timestamp())}.txt"
             filepath = os.path.join("workspace", filename)
 
-            # 🔥 CRITICAL FIX (handles dict/list/string)
+            # 🔥 FIX: ALWAYS STRING SAFE
             if isinstance(inp, (dict, list)):
                 content = json.dumps(inp, indent=2)
             else:
@@ -106,6 +112,6 @@ Content:
             return f"File error: {str(e)}"
 
     # -----------------------
-    # ❓ UNKNOWN ACTION
+    # ❓ UNKNOWN
     # -----------------------
     return f"Unknown action: {act}"
