@@ -4,3 +4,4 @@ tiktoken
 colorama
 flask
 duckduckgo-search
+ddgs
