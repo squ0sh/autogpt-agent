@@ -10,6 +10,7 @@ GOAL = ""
 memory = []
 RUN_ID = None
 STOP_FLAG = False
+failed_steps = 0
 
 MEMORY_FILE = "memory.json"
 
@@ -58,10 +59,16 @@ def chat(prompt, max_tokens=1200):
 
 
 # -----------------------
-# 🧠 STEP GENERATION
+# 🧠 STEP GENERATION (SMART)
 # -----------------------
 def generate_plan():
     step_number = len(memory) + 1
+
+    global failed_steps
+
+    strategy_note = ""
+    if failed_steps >= 2:
+        strategy_note = "⚠️ Previous steps failed. CHANGE STRATEGY completely. Try a different angle or data source."
 
     prompt = f"""
 You are an autonomous execution agent.
@@ -72,15 +79,17 @@ Goal:
 Previous steps:
 {memory}
 
-Current step: {step_number}
+{strategy_note}
 
-CRITICAL:
-- Each step MUST produce NEW real-world data
-- Do NOT repeat prior steps
-- If research is needed → MUST use tools
-- If no new data is gathered → step is FAILURE
+RULES:
+- Each step MUST produce new real-world insights
+- DO NOT repeat previous research
+- If stuck → change strategy completely
+- Prioritize high-quality sources (guides, case studies, real data)
 
-FORMAT:
+Step {step_number}:
+
+Format:
 Step {step_number}: <title>
 
 - action 1
@@ -139,7 +148,7 @@ def execute_action(action):
 
 
 # -----------------------
-# 🔍 REFLECTION
+# 🔍 REFLECTION (STRICT)
 # -----------------------
 def reflect(result):
     prompt = f"""
@@ -150,9 +159,9 @@ Result:
 {result}
 
 CRITICAL:
-- ONLY analyze real output
-- If no real progress → say "No real progress made"
-- DO NOT invent outcomes (sales, users, etc.)
+- ONLY evaluate real output
+- If no meaningful progress → say "No real progress made"
+- DO NOT invent outcomes (sales, traffic, etc.)
 
 FORMAT:
 
@@ -174,7 +183,11 @@ Next:
 # 🧠 GOAL CHECK
 # -----------------------
 def is_goal_complete():
-    result = chat(f"Goal: {GOAL}\nSteps: {memory}\nAnswer YES or NO", 20).lower()
+    result = chat(
+        f"Goal: {GOAL}\nSteps: {memory}\nHas the goal been achieved? Answer YES or NO only.",
+        20
+    ).lower()
+
     return "yes" in result
 
 
@@ -193,11 +206,11 @@ Reflection: {s['reflection']}
 ---
 """
 
-    return chat(f"Create full report:\n{text}", 2000)
+    return chat(f"Create a clean, structured final report:\n{text}", 2000)
 
 
 def refine(final):
-    return chat(f"Improve clarity:\n{final}", 1500)
+    return chat(f"Improve clarity and readability:\n{final}", 1500)
 
 
 # -----------------------
@@ -211,11 +224,12 @@ def safe(text):
 # 🚀 MAIN LOOP
 # -----------------------
 def run_agent_stream(goal, max_steps=6):
-    global GOAL, memory, RUN_ID, STOP_FLAG
+    global GOAL, memory, RUN_ID, STOP_FLAG, failed_steps
 
     GOAL = goal
     memory = []
     STOP_FLAG = False
+    failed_steps = 0
     RUN_ID = str(uuid.uuid4())
 
     yield f"event: start\ndata: {safe(goal)}\n\n"
@@ -228,18 +242,29 @@ def run_agent_stream(goal, max_steps=6):
 
         yield f"event: step\ndata: {step+1}\n\n"
 
+        # 1. PLAN
         plan = generate_plan()
         yield f"event: plan\ndata: {safe(plan)}\n\n"
 
+        # 2. ACTION
         action = decide_action(plan)
         yield f"event: action\ndata: {safe(json.dumps(action))}\n\n"
 
+        # 3. EXECUTE
         result = execute_action(action)
         yield f"event: result\ndata: {safe(result)}\n\n"
 
+        # 4. REFLECT
         reflection = reflect(result)
         yield f"event: reflection\ndata: {safe(reflection)}\n\n"
 
+        # 5. FAILURE TRACKING
+        if "No real progress" in reflection:
+            failed_steps += 1
+        else:
+            failed_steps = 0
+
+        # 6. STORE MEMORY
         memory.append({
             "step": step + 1,
             "plan": plan,
@@ -250,11 +275,13 @@ def run_agent_stream(goal, max_steps=6):
 
         save_memory()
 
+        # 7. GOAL CHECK
         if step >= 2 and is_goal_complete():
             break
 
         time.sleep(0.3)
 
+    # FINAL OUTPUT
     final = refine(generate_final())
 
     yield f"event: final\ndata: {safe(final)}\n\n"

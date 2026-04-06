@@ -1,4 +1,3 @@
-import os
 import json
 import requests
 from bs4 import BeautifulSoup
@@ -9,92 +8,177 @@ except:
     DDGS = None
 
 
+# -----------------------
+# 🔍 QUALITY FILTER
+# -----------------------
+def is_good_content(text):
+    bad_signals = [
+        "enable javascript",
+        "sign up",
+        "log in",
+        "cookie",
+        "accept cookies",
+        "captcha",
+        "403 forbidden"
+    ]
+
+    if len(text) < 200:
+        return False
+
+    for bad in bad_signals:
+        if bad in text.lower():
+            return False
+
+    return True
+
+
+# -----------------------
+# ✂️ CLEAN TEXT
+# -----------------------
+def clean_text(html):
+    soup = BeautifulSoup(html, "html.parser")
+
+    for tag in soup(["script", "style", "nav", "footer", "header"]):
+        tag.extract()
+
+    text = soup.get_text()
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+
+    return "\n".join(lines)
+
+
+# -----------------------
+# 🧠 EXTRACT INSIGHTS
+# -----------------------
+def extract_insights(text):
+    lines = text.split("\n")
+
+    insights = []
+
+    for line in lines:
+        if len(line) > 60 and len(line) < 300:
+            insights.append(line)
+
+        if len(insights) >= 5:
+            break
+
+    return insights
+
+
+# -----------------------
+# 🔥 RESEARCH (UPGRADED)
+# -----------------------
+def research(query):
+    if DDGS is None:
+        return "Install ddgs"
+
+    urls = []
+
+    with DDGS() as ddgs:
+        results = ddgs.text(query, max_results=5)
+        for r in results:
+            urls.append(r.get("href"))
+
+    collected = []
+
+    for url in urls:
+        try:
+            res = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+            text = clean_text(res.text)
+
+            if not is_good_content(text):
+                continue
+
+            insights = extract_insights(text)
+
+            if insights:
+                collected.append({
+                    "url": url,
+                    "insights": insights
+                })
+
+        except:
+            continue
+
+        if len(collected) >= 3:
+            break
+
+    if not collected:
+        return json.dumps({
+            "query": query,
+            "error": "No high-quality sources found"
+        }, indent=2)
+
+    return json.dumps({
+        "query": query,
+        "sources": collected
+    }, indent=2)
+
+
+# -----------------------
+# 🌐 SEARCH
+# -----------------------
+def search(query):
+    if DDGS is None:
+        return "Install ddgs"
+
+    with DDGS() as ddgs:
+        results = ddgs.text(query, max_results=5)
+
+    return json.dumps(results, indent=2)
+
+
+# -----------------------
+# 🧪 SCRAPE
+# -----------------------
+def scrape(url):
+    try:
+        res = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+        text = clean_text(res.text)
+
+        if not is_good_content(text):
+            return "Low-quality or blocked content"
+
+        return text[:2000]
+
+    except Exception as e:
+        return str(e)
+
+
+# -----------------------
+# 🧠 ANALYZE
+# -----------------------
+def analyze(data):
+    return f"Structured analysis:\n{data}"
+
+
+# -----------------------
+# ✍️ WRITE
+# -----------------------
+def write(data):
+    return f"Generated output:\n{data}"
+
+
+# -----------------------
+# 🎯 MAIN ROUTER
+# -----------------------
 def run_tool(action):
     act = action.get("action")
     inp = action.get("input")
 
-    # -----------------------
-    # 🔥 RESEARCH (REAL CHAIN)
-    # -----------------------
     if act == "research":
-        if DDGS is None:
-            return "Install ddgs"
+        return research(inp)
 
-        query = str(inp)
-        urls = []
-
-        with DDGS() as ddgs:
-            results = ddgs.text(query, max_results=5)
-            for r in results:
-                urls.append(r.get("href"))
-
-        data = []
-
-        for url in urls[:3]:
-            try:
-                res = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
-                soup = BeautifulSoup(res.text, "html.parser")
-
-                for tag in soup(["script", "style"]):
-                    tag.extract()
-
-                text = soup.get_text()
-                clean = "\n".join([l.strip() for l in text.splitlines() if l.strip()])
-
-                data.append({
-                    "url": url,
-                    "content": clean[:1500]
-                })
-
-            except:
-                continue
-
-        return json.dumps({
-            "query": query,
-            "sources": data
-        }, indent=2)
-
-    # -----------------------
-    # SEARCH
-    # -----------------------
     elif act == "search":
-        if DDGS is None:
-            return "Install ddgs"
+        return search(inp)
 
-        with DDGS() as ddgs:
-            results = ddgs.text(inp, max_results=5)
-
-        return json.dumps(results, indent=2)
-
-    # -----------------------
-    # SCRAPE
-    # -----------------------
     elif act == "scrape":
-        try:
-            res = requests.get(inp, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
-            soup = BeautifulSoup(res.text, "html.parser")
+        return scrape(inp)
 
-            for tag in soup(["script", "style"]):
-                tag.extract()
-
-            text = soup.get_text()
-            clean = "\n".join([l.strip() for l in text.splitlines() if l.strip()])
-
-            return clean[:3000]
-
-        except Exception as e:
-            return str(e)
-
-    # -----------------------
-    # ANALYZE
-    # -----------------------
     elif act == "analyze":
-        return f"Analysis of data:\n{inp}"
+        return analyze(inp)
 
-    # -----------------------
-    # WRITE
-    # -----------------------
     elif act == "write":
-        return f"Written output:\n{inp}"
+        return write(inp)
 
     return "Unknown action"
