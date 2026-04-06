@@ -36,7 +36,7 @@ def save_memory():
 
 
 # -----------------------
-# 🧠 CORE CHAT (WITH AUTO-CONTINUE)
+# 🧠 CORE CHAT (AUTO-CONTINUE)
 # -----------------------
 def chat(prompt, max_tokens=1200):
     messages = [{"role": "user", "content": prompt}]
@@ -50,7 +50,7 @@ def chat(prompt, max_tokens=1200):
 
     output = response.choices[0].message.content.strip()
 
-    # 🔥 AUTO-CONTINUE
+    # 🔥 AUTO-CONTINUE IF CUT OFF
     if response.choices[0].finish_reason == "length":
         messages.append({"role": "assistant", "content": output})
         messages.append({
@@ -103,7 +103,7 @@ Step {step_number}: <short title>
 
 
 # -----------------------
-# 🎯 ACTION SELECTION (UPDATED 🔥)
+# 🎯 ACTION SELECTION (FORCED REAL-WORLD 🔥)
 # -----------------------
 def decide_action(plan):
     prompt = f"""
@@ -119,12 +119,21 @@ Choose ONE action:
 - save_structured
 
 Guidelines:
-- Use "search" to find relevant links
-- Use "scrape" to open and extract content from URLs
-- If search returns links → consider scraping them
-- Use "save_file" for notes
-- Use "save_structured" for important outputs
-- Prefer real-world data over guessing
+
+- You MUST use "search" when the step involves research
+- You MUST use "scrape" after finding useful links
+- DO NOT rely on general knowledge if real data is needed
+- Prefer real-world data over assumptions
+
+CRITICAL:
+If the step involves:
+- trends
+- research
+- competitors
+- platforms
+→ you MUST use tools
+
+If input contains a URL → ALWAYS use "scrape"
 
 Return JSON:
 {{
@@ -134,9 +143,15 @@ Return JSON:
 """
 
     try:
-        return json.loads(chat(prompt, max_tokens=400))
+        decision = json.loads(chat(prompt, max_tokens=400))
     except:
-        return {"action": "write", "input": "execute next step"}
+        decision = {"action": "write", "input": "execute next step"}
+
+    # 🔥 AUTO-FIX: If URL detected → force scrape
+    if isinstance(decision.get("input"), str) and "http" in decision["input"]:
+        decision["action"] = "scrape"
+
+    return decision
 
 
 # -----------------------
@@ -313,7 +328,7 @@ def run_agent_stream(goal, max_steps=6):
         result = execute_action(action)
         yield f"event: result\ndata: {safe(result)}\n\n"
 
-        # 🔥 AUTO-SAVE IMPORTANT RESULTS
+        # 🔥 AUTO-SAVE
         if action["action"] in ["write", "analyze"]:
             try:
                 from tools import run_tool
