@@ -1,203 +1,100 @@
 import os
 import json
-from datetime import datetime
-
-# -----------------------
-# 🌐 SEARCH IMPORT
-# -----------------------
-try:
-    from ddgs import DDGS
-except ImportError:
-    DDGS = None
-
-# -----------------------
-# 🌐 SCRAPER IMPORT
-# -----------------------
 import requests
 from bs4 import BeautifulSoup
 
-
-# -----------------------
-# 🔬 RESEARCH ENGINE (NEW 🔥)
-# -----------------------
-def clean_text(text):
-    return " ".join(text.split())[:3000]
+try:
+    from ddgs import DDGS
+except:
+    DDGS = None
 
 
-def scrape_url_simple(url):
-    try:
-        headers = {"User-Agent": "Mozilla/5.0"}
-        res = requests.get(url, headers=headers, timeout=10)
-
-        soup = BeautifulSoup(res.text, "html.parser")
-
-        for tag in soup(["script", "style", "nav", "footer", "header"]):
-            tag.extract()
-
-        text = soup.get_text(separator=" ")
-        return clean_text(text)
-
-    except Exception as e:
-        return f"Error scraping {url}: {str(e)}"
-
-
-def research(query):
-    if DDGS is None:
-        return "Search tool not installed. Run: pip install ddgs"
-
-    results = []
-
-    try:
-        with DDGS() as ddgs:
-            raw = list(ddgs.text(query, max_results=5))
-
-        for r in raw[:3]:
-            url = r.get("href")
-            title = r.get("title")
-
-            scraped = scrape_url_simple(url)
-
-            results.append({
-                "title": title,
-                "url": url,
-                "content": scraped[:1000]
-            })
-
-        return results
-
-    except Exception as e:
-        return f"Research error: {str(e)}"
-
-
-# -----------------------
-# 🛠 MAIN TOOL ROUTER
-# -----------------------
 def run_tool(action):
     act = action.get("action")
     inp = action.get("input")
 
-    os.makedirs("workspace", exist_ok=True)
+    # -----------------------
+    # 🔥 RESEARCH (REAL CHAIN)
+    # -----------------------
+    if act == "research":
+        if DDGS is None:
+            return "Install ddgs"
+
+        query = str(inp)
+        urls = []
+
+        with DDGS() as ddgs:
+            results = ddgs.text(query, max_results=5)
+            for r in results:
+                urls.append(r.get("href"))
+
+        data = []
+
+        for url in urls[:3]:
+            try:
+                res = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+                soup = BeautifulSoup(res.text, "html.parser")
+
+                for tag in soup(["script", "style"]):
+                    tag.extract()
+
+                text = soup.get_text()
+                clean = "\n".join([l.strip() for l in text.splitlines() if l.strip()])
+
+                data.append({
+                    "url": url,
+                    "content": clean[:1500]
+                })
+
+            except:
+                continue
+
+        return json.dumps({
+            "query": query,
+            "sources": data
+        }, indent=2)
 
     # -----------------------
-    # ✍️ WRITE
-    # -----------------------
-    if act == "write":
-        return f"Generated content:\n{str(inp)}"
-
-    # -----------------------
-    # 🧠 ANALYZE
-    # -----------------------
-    elif act == "analyze":
-        return f"Analysis:\n{str(inp)}"
-
-    # -----------------------
-    # 🌐 SEARCH
+    # SEARCH
     # -----------------------
     elif act == "search":
         if DDGS is None:
-            return "Search tool not installed. Run: pip install ddgs"
+            return "Install ddgs"
 
-        try:
-            query = str(inp).strip()
+        with DDGS() as ddgs:
+            results = ddgs.text(inp, max_results=5)
 
-            if len(query.split()) < 4:
-                query += " detailed explanation examples trends"
-
-            results_text = []
-
-            with DDGS() as ddgs:
-                results = ddgs.text(query, max_results=5)
-
-                for r in results:
-                    results_text.append(
-                        f"{r.get('title')}\n{r.get('href')}\n{r.get('body')}"
-                    )
-
-            if not results_text:
-                return f"No strong results found.\nRefined query: {query}"
-
-            return "Search results:\n\n" + "\n\n---\n\n".join(results_text)
-
-        except Exception as e:
-            return f"Search error: {str(e)}"
+        return json.dumps(results, indent=2)
 
     # -----------------------
-    # 🕷️ SCRAPE
+    # SCRAPE
     # -----------------------
     elif act == "scrape":
         try:
-            url = str(inp).strip()
+            res = requests.get(inp, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+            soup = BeautifulSoup(res.text, "html.parser")
 
-            headers = {"User-Agent": "Mozilla/5.0"}
-
-            response = requests.get(url, headers=headers, timeout=10)
-
-            if response.status_code != 200:
-                return f"Failed to fetch page: {response.status_code}"
-
-            soup = BeautifulSoup(response.text, "html.parser")
-
-            for tag in soup(["script", "style", "nav", "footer", "header"]):
+            for tag in soup(["script", "style"]):
                 tag.extract()
 
-            text = soup.get_text(separator="\n")
-            lines = [line.strip() for line in text.splitlines() if line.strip()]
-            clean = "\n".join(lines)[:4000]
+            text = soup.get_text()
+            clean = "\n".join([l.strip() for l in text.splitlines() if l.strip()])
 
-            return f"Scraped content from {url}:\n\n{clean}"
-
-        except Exception as e:
-            return f"Scrape error: {str(e)}"
-
-    # -----------------------
-    # 🔬 RESEARCH 🔥🔥🔥
-    # -----------------------
-    elif act == "research":
-        return research(inp)
-
-    # -----------------------
-    # 📁 SAVE FILE
-    # -----------------------
-    elif act == "save_file":
-        try:
-            safe_name = str(inp)[:50].replace(" ", "_").replace("/", "_")
-            filename = f"{safe_name}.txt"
-            filepath = os.path.join("workspace", filename)
-
-            content = f"""Generated by agent
-Time: {datetime.now()}
-
-Content:
-{str(inp)}
-"""
-
-            with open(filepath, "w") as f:
-                f.write(content)
-
-            return f"File saved: {filepath}"
+            return clean[:3000]
 
         except Exception as e:
-            return f"File error: {str(e)}"
+            return str(e)
 
     # -----------------------
-    # 📁 STRUCTURED SAVE
+    # ANALYZE
     # -----------------------
-    elif act == "save_structured":
-        try:
-            filename = f"structured_{int(datetime.now().timestamp())}.txt"
-            filepath = os.path.join("workspace", filename)
+    elif act == "analyze":
+        return f"Analysis of data:\n{inp}"
 
-            if isinstance(inp, (dict, list)):
-                content = json.dumps(inp, indent=2)
-            else:
-                content = str(inp)
+    # -----------------------
+    # WRITE
+    # -----------------------
+    elif act == "write":
+        return f"Written output:\n{inp}"
 
-            with open(filepath, "w") as f:
-                f.write(content)
-
-            return f"Structured file saved: {filepath}"
-
-        except Exception as e:
-            return f"File error: {str(e)}"
-
-    return f"Unknown action: {act}"
+    return "Unknown action"
