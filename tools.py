@@ -1,6 +1,8 @@
 import json
 import requests
+import os
 from bs4 import BeautifulSoup
+from datetime import datetime
 
 try:
     from ddgs import DDGS
@@ -9,31 +11,23 @@ except:
 
 
 # -----------------------
-# 🔍 QUALITY FILTER
+# QUALITY FILTER
 # -----------------------
 def is_good_content(text):
-    bad_signals = [
-        "enable javascript",
-        "sign up",
-        "log in",
-        "cookie",
-        "accept cookies",
-        "captcha",
-        "403 forbidden"
-    ]
+    bad = ["enable javascript", "sign up", "cookie", "captcha"]
 
     if len(text) < 200:
         return False
 
-    for bad in bad_signals:
-        if bad in text.lower():
+    for b in bad:
+        if b in text.lower():
             return False
 
     return True
 
 
 # -----------------------
-# ✂️ CLEAN TEXT
+# CLEAN HTML
 # -----------------------
 def clean_text(html):
     soup = BeautifulSoup(html, "html.parser")
@@ -48,16 +42,15 @@ def clean_text(html):
 
 
 # -----------------------
-# 🧠 EXTRACT INSIGHTS
+# EXTRACT INSIGHTS
 # -----------------------
 def extract_insights(text):
     lines = text.split("\n")
-
     insights = []
 
-    for line in lines:
-        if len(line) > 60 and len(line) < 300:
-            insights.append(line)
+    for l in lines:
+        if 60 < len(l) < 300:
+            insights.append(l)
 
         if len(insights) >= 5:
             break
@@ -66,7 +59,7 @@ def extract_insights(text):
 
 
 # -----------------------
-# 🔥 RESEARCH (UPGRADED)
+# 🔍 RESEARCH
 # -----------------------
 def research(query):
     if DDGS is None:
@@ -79,7 +72,7 @@ def research(query):
         for r in results:
             urls.append(r.get("href"))
 
-    collected = []
+    data = []
 
     for url in urls:
         try:
@@ -92,7 +85,7 @@ def research(query):
             insights = extract_insights(text)
 
             if insights:
-                collected.append({
+                data.append({
                     "url": url,
                     "insights": insights
                 })
@@ -100,44 +93,25 @@ def research(query):
         except:
             continue
 
-        if len(collected) >= 3:
+        if len(data) >= 3:
             break
-
-    if not collected:
-        return json.dumps({
-            "query": query,
-            "error": "No high-quality sources found"
-        }, indent=2)
 
     return json.dumps({
         "query": query,
-        "sources": collected
+        "sources": data
     }, indent=2)
 
 
 # -----------------------
-# 🌐 SEARCH
-# -----------------------
-def search(query):
-    if DDGS is None:
-        return "Install ddgs"
-
-    with DDGS() as ddgs:
-        results = ddgs.text(query, max_results=5)
-
-    return json.dumps(results, indent=2)
-
-
-# -----------------------
-# 🧪 SCRAPE
+# 🌐 SCRAPE
 # -----------------------
 def scrape(url):
     try:
-        res = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+        res = requests.get(url, timeout=10)
         text = clean_text(res.text)
 
         if not is_good_content(text):
-            return "Low-quality or blocked content"
+            return "Low-quality content"
 
         return text[:2000]
 
@@ -146,21 +120,72 @@ def scrape(url):
 
 
 # -----------------------
-# 🧠 ANALYZE
+# 🧠 CREATE (REAL OUTPUT)
 # -----------------------
-def analyze(data):
-    return f"Structured analysis:\n{data}"
+def create(data):
+    filename = f"output_{int(datetime.now().timestamp())}.txt"
+
+    with open(filename, "w") as f:
+        f.write(str(data))
+
+    return f"Created file: {filename}"
 
 
 # -----------------------
-# ✍️ WRITE
+# 💾 STORE (STRUCTURED MEMORY)
 # -----------------------
-def write(data):
-    return f"Generated output:\n{data}"
+def store(data):
+    filename = "agent_store.json"
+
+    existing = []
+
+    if os.path.exists(filename):
+        with open(filename, "r") as f:
+            try:
+                existing = json.load(f)
+            except:
+                existing = []
+
+    existing.append({
+        "timestamp": str(datetime.now()),
+        "data": data
+    })
+
+    with open(filename, "w") as f:
+        json.dump(existing, f, indent=2)
+
+    return "Stored successfully"
 
 
 # -----------------------
-# 🎯 MAIN ROUTER
+# 🔮 SIMULATE (FIRST VERSION)
+# -----------------------
+def simulate(data):
+    """
+    Simple scenario modeling:
+    - best case
+    - worst case
+    - likely outcome
+    """
+
+    return json.dumps({
+        "simulation": {
+            "best_case": f"If executed well → strong positive outcome based on: {data[:200]}",
+            "worst_case": f"If assumptions fail → minimal or no impact",
+            "likely_outcome": f"Moderate progress with key dependency on execution quality"
+        }
+    }, indent=2)
+
+
+# -----------------------
+# 🔄 TRANSFORM
+# -----------------------
+def transform(data):
+    return f"Transformed version:\n{data}"
+
+
+# -----------------------
+# 🎯 ROUTER
 # -----------------------
 def run_tool(action):
     act = action.get("action")
@@ -169,16 +194,19 @@ def run_tool(action):
     if act == "research":
         return research(inp)
 
-    elif act == "search":
-        return search(inp)
-
     elif act == "scrape":
         return scrape(inp)
 
-    elif act == "analyze":
-        return analyze(inp)
+    elif act == "create":
+        return create(inp)
 
-    elif act == "write":
-        return write(inp)
+    elif act == "store":
+        return store(inp)
+
+    elif act == "simulate":
+        return simulate(inp)
+
+    elif act == "transform":
+        return transform(inp)
 
     return "Unknown action"

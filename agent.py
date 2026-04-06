@@ -68,7 +68,7 @@ def generate_plan():
 
     strategy_note = ""
     if failed_steps >= 2:
-        strategy_note = "⚠️ Previous steps failed. CHANGE STRATEGY completely. Try a different angle or data source."
+        strategy_note = "⚠️ Previous steps failed. CHANGE STRATEGY completely. Try a different approach, data source, or ACTION."
 
     prompt = f"""
 You are an autonomous execution agent.
@@ -82,10 +82,11 @@ Previous steps:
 {strategy_note}
 
 RULES:
-- Each step MUST produce new real-world insights
-- DO NOT repeat previous research
+- Each step MUST produce real progress
+- Avoid repeating research
+- If enough info → TAKE ACTION (create, simulate, store)
 - If stuck → change strategy completely
-- Prioritize high-quality sources (guides, case studies, real data)
+- Move toward outcome, not just knowledge
 
 Step {step_number}:
 
@@ -101,25 +102,28 @@ Step {step_number}: <title>
 
 
 # -----------------------
-# 🎯 ACTION DECISION
+# 🎯 ACTION DECISION (UPGRADED)
 # -----------------------
 def decide_action(plan):
     prompt = f"""
 Plan:
 {plan}
 
-Choose ONE action:
+Choose the BEST next action:
 
-- research
-- search
-- scrape
-- analyze
-- write
+Options:
+- research → gather new knowledge
+- scrape → extract from URL
+- create → generate real artifact (file/output)
+- store → save structured data
+- simulate → model possible outcomes
+- transform → refine or restructure data
 
 RULES:
-- If learning needed → research
-- If URL present → scrape
-- Avoid "write" unless summarizing real data
+- If enough info exists → simulate or create
+- If data is missing → research
+- Avoid repeating same action type
+- Prefer ACTION over thinking when possible
 
 Return JSON:
 {{ "action": "...", "input": "..." }}
@@ -130,6 +134,7 @@ Return JSON:
     except:
         decision = {"action": "research", "input": plan}
 
+    # Force scrape if URL detected
     if "http" in str(decision.get("input")):
         decision["action"] = "scrape"
 
@@ -160,8 +165,9 @@ Result:
 
 CRITICAL:
 - ONLY evaluate real output
-- If no meaningful progress → say "No real progress made"
-- DO NOT invent outcomes (sales, traffic, etc.)
+- If no meaningful progress → say EXACTLY: "No real progress made"
+- If action created something useful → recognize it
+- DO NOT invent outcomes
 
 FORMAT:
 
@@ -180,12 +186,23 @@ Next:
 
 
 # -----------------------
-# 🧠 GOAL CHECK
+# 🧠 GOAL CHECK (IMPROVED)
 # -----------------------
 def is_goal_complete():
     result = chat(
-        f"Goal: {GOAL}\nSteps: {memory}\nHas the goal been achieved? Answer YES or NO only.",
-        20
+        f"""
+Goal:
+{GOAL}
+
+Steps:
+{memory}
+
+Has the goal been TRULY achieved with real outcomes (not just research)?
+
+Answer ONLY:
+YES or NO
+""",
+        30
     ).lower()
 
     return "yes" in result
@@ -201,12 +218,13 @@ def generate_final():
         text += f"""
 Step {s['step']}
 Plan: {s['plan']}
+Action: {s['action']}
 Result: {s['result']}
 Reflection: {s['reflection']}
 ---
 """
 
-    return chat(f"Create a clean, structured final report:\n{text}", 2000)
+    return chat(f"Create a clear, structured final report:\n{text}", 2000)
 
 
 def refine(final):
@@ -246,7 +264,7 @@ def run_agent_stream(goal, max_steps=6):
         plan = generate_plan()
         yield f"event: plan\ndata: {safe(plan)}\n\n"
 
-        # 2. ACTION
+        # 2. DECIDE
         action = decide_action(plan)
         yield f"event: action\ndata: {safe(json.dumps(action))}\n\n"
 
@@ -259,12 +277,12 @@ def run_agent_stream(goal, max_steps=6):
         yield f"event: reflection\ndata: {safe(reflection)}\n\n"
 
         # 5. FAILURE TRACKING
-        if "No real progress" in reflection:
+        if "No real progress made" in reflection:
             failed_steps += 1
         else:
             failed_steps = 0
 
-        # 6. STORE MEMORY
+        # 6. MEMORY
         memory.append({
             "step": step + 1,
             "plan": plan,
