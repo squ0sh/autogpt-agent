@@ -18,6 +18,58 @@ from bs4 import BeautifulSoup
 
 
 # -----------------------
+# 🔬 RESEARCH ENGINE (NEW 🔥)
+# -----------------------
+def clean_text(text):
+    return " ".join(text.split())[:3000]
+
+
+def scrape_url_simple(url):
+    try:
+        headers = {"User-Agent": "Mozilla/5.0"}
+        res = requests.get(url, headers=headers, timeout=10)
+
+        soup = BeautifulSoup(res.text, "html.parser")
+
+        for tag in soup(["script", "style", "nav", "footer", "header"]):
+            tag.extract()
+
+        text = soup.get_text(separator=" ")
+        return clean_text(text)
+
+    except Exception as e:
+        return f"Error scraping {url}: {str(e)}"
+
+
+def research(query):
+    if DDGS is None:
+        return "Search tool not installed. Run: pip install ddgs"
+
+    results = []
+
+    try:
+        with DDGS() as ddgs:
+            raw = list(ddgs.text(query, max_results=5))
+
+        for r in raw[:3]:
+            url = r.get("href")
+            title = r.get("title")
+
+            scraped = scrape_url_simple(url)
+
+            results.append({
+                "title": title,
+                "url": url,
+                "content": scraped[:1000]
+            })
+
+        return results
+
+    except Exception as e:
+        return f"Research error: {str(e)}"
+
+
+# -----------------------
 # 🛠 MAIN TOOL ROUTER
 # -----------------------
 def run_tool(action):
@@ -70,15 +122,13 @@ def run_tool(action):
             return f"Search error: {str(e)}"
 
     # -----------------------
-    # 🕷️ SCRAPE 🔥🔥
+    # 🕷️ SCRAPE
     # -----------------------
     elif act == "scrape":
         try:
             url = str(inp).strip()
 
-            headers = {
-                "User-Agent": "Mozilla/5.0"
-            }
+            headers = {"User-Agent": "Mozilla/5.0"}
 
             response = requests.get(url, headers=headers, timeout=10)
 
@@ -87,23 +137,23 @@ def run_tool(action):
 
             soup = BeautifulSoup(response.text, "html.parser")
 
-            # Remove junk
             for tag in soup(["script", "style", "nav", "footer", "header"]):
                 tag.extract()
 
             text = soup.get_text(separator="\n")
-
-            # Clean lines
             lines = [line.strip() for line in text.splitlines() if line.strip()]
-            clean_text = "\n".join(lines)
+            clean = "\n".join(lines)[:4000]
 
-            # 🔥 LIMIT SIZE (VERY IMPORTANT)
-            clean_text = clean_text[:4000]
-
-            return f"Scraped content from {url}:\n\n{clean_text}"
+            return f"Scraped content from {url}:\n\n{clean}"
 
         except Exception as e:
             return f"Scrape error: {str(e)}"
+
+    # -----------------------
+    # 🔬 RESEARCH 🔥🔥🔥
+    # -----------------------
+    elif act == "research":
+        return research(inp)
 
     # -----------------------
     # 📁 SAVE FILE
@@ -151,4 +201,3 @@ Content:
             return f"File error: {str(e)}"
 
     return f"Unknown action: {act}"
-
