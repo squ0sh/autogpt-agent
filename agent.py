@@ -36,16 +36,38 @@ def save_memory():
 
 
 # -----------------------
-# 🧠 CORE CHAT
+# 🧠 CORE CHAT (UPGRADED 🔥)
 # -----------------------
 def chat(prompt, max_tokens=1200):
+    messages = [{"role": "user", "content": prompt}]
+
     response = client.chat.completions.create(
         model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
+        messages=messages,
         temperature=0.5,
         max_tokens=max_tokens,
     )
-    return response.choices[0].message.content.strip()
+
+    output = response.choices[0].message.content.strip()
+
+    # 🔥 AUTO-CONTINUE IF TRUNCATED
+    if response.choices[0].finish_reason == "length":
+        messages.append({"role": "assistant", "content": output})
+        messages.append({
+            "role": "user",
+            "content": "Continue exactly where you left off. Do not repeat anything."
+        })
+
+        continuation = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=messages,
+            temperature=0.5,
+            max_tokens=max_tokens,
+        )
+
+        output += "\n" + continuation.choices[0].message.content.strip()
+
+    return output
 
 
 # -----------------------
@@ -77,11 +99,11 @@ Step {step_number}: <short title>
 - action 3
 """
 
-    return chat(prompt, max_tokens=600)
+    return chat(prompt, max_tokens=800)
 
 
 # -----------------------
-# 🎯 ACTION SELECTION (UPDATED 🔥)
+# 🎯 ACTION SELECTION
 # -----------------------
 def decide_action(plan):
     prompt = f"""
@@ -109,7 +131,7 @@ Return JSON:
 """
 
     try:
-        return json.loads(chat(prompt, max_tokens=300))
+        return json.loads(chat(prompt, max_tokens=400))
     except:
         return {"action": "write", "input": "execute next step"}
 
@@ -152,7 +174,7 @@ Evaluation:
 Next:
 <next step>
 """
-    return chat(prompt, max_tokens=600)
+    return chat(prompt, max_tokens=800)
 
 
 # -----------------------
@@ -171,12 +193,12 @@ Is the goal fully achieved?
 Answer ONLY:
 YES or NO
 """
-    result = chat(prompt, max_tokens=10).lower()
+    result = chat(prompt, max_tokens=20).lower()
     return "yes" in result
 
 
 # -----------------------
-# 🧠 FINAL OUTPUT
+# 🧠 FINAL OUTPUT (BOOSTED 🔥)
 # -----------------------
 def generate_final():
     steps_text = ""
@@ -222,11 +244,11 @@ FORMAT:
 ...
 """
 
-    return chat(prompt, max_tokens=1800)
+    return chat(prompt, max_tokens=3000)
 
 
 # -----------------------
-# 🧠 REFINE
+# 🧠 REFINE (BOOSTED 🔥)
 # -----------------------
 def refine(final):
     prompt = f"""
@@ -234,7 +256,7 @@ Improve clarity WITHOUT removing content:
 
 {final}
 """
-    return chat(prompt, max_tokens=1800)
+    return chat(prompt, max_tokens=2500)
 
 
 # -----------------------
@@ -253,7 +275,7 @@ def safe(text):
 
 
 # -----------------------
-# 🚀 MAIN LOOP (UPDATED 🔥)
+# 🚀 MAIN LOOP
 # -----------------------
 def run_agent_stream(goal, max_steps=6):
     global GOAL, memory, RUN_ID, STOP_FLAG
@@ -294,7 +316,7 @@ def run_agent_stream(goal, max_steps=6):
                 from tools import run_tool
                 run_tool({
                     "action": "save_file",
-                    "input": result[:200]  # avoid huge filenames
+                    "input": result[:200]
                 })
             except:
                 pass
@@ -323,7 +345,6 @@ def run_agent_stream(goal, max_steps=6):
     final = generate_final()
     improved = refine(final)
 
-    # 🔥 SAVE FINAL (STRUCTURED)
     from tools import run_tool
     run_tool({
         "action": "save_structured",
