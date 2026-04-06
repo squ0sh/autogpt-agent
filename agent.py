@@ -36,7 +36,7 @@ def save_memory():
 
 
 # -----------------------
-# 🧠 CORE CHAT (UPGRADED 🔥)
+# 🧠 CORE CHAT (WITH AUTO-CONTINUE)
 # -----------------------
 def chat(prompt, max_tokens=1200):
     messages = [{"role": "user", "content": prompt}]
@@ -50,7 +50,7 @@ def chat(prompt, max_tokens=1200):
 
     output = response.choices[0].message.content.strip()
 
-    # 🔥 AUTO-CONTINUE IF TRUNCATED
+    # 🔥 AUTO-CONTINUE
     if response.choices[0].finish_reason == "length":
         messages.append({"role": "assistant", "content": output})
         messages.append({
@@ -103,7 +103,7 @@ Step {step_number}: <short title>
 
 
 # -----------------------
-# 🎯 ACTION SELECTION
+# 🎯 ACTION SELECTION (UPDATED 🔥)
 # -----------------------
 def decide_action(plan):
     prompt = f"""
@@ -114,19 +114,22 @@ Choose ONE action:
 - write
 - analyze
 - search
+- scrape
 - save_file
 - save_structured
 
 Guidelines:
-- Use "search" for real-world info
-- Use "save_file" for simple notes
+- Use "search" to find relevant links
+- Use "scrape" to open and extract content from URLs
+- If search returns links → consider scraping them
+- Use "save_file" for notes
 - Use "save_structured" for important outputs
-- Prefer saving useful outputs
+- Prefer real-world data over guessing
 
 Return JSON:
 {{
     "action": "...",
-    "input": "short instruction or content"
+    "input": "short instruction or URL/content"
 }}
 """
 
@@ -198,7 +201,7 @@ YES or NO
 
 
 # -----------------------
-# 🧠 FINAL OUTPUT (BOOSTED 🔥)
+# 🧠 FINAL OUTPUT
 # -----------------------
 def generate_final():
     steps_text = ""
@@ -248,7 +251,7 @@ FORMAT:
 
 
 # -----------------------
-# 🧠 REFINE (BOOSTED 🔥)
+# 🧠 REFINE
 # -----------------------
 def refine(final):
     prompt = f"""

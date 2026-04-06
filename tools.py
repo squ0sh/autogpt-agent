@@ -3,12 +3,18 @@ import json
 from datetime import datetime
 
 # -----------------------
-# 🌐 UPDATED SEARCH IMPORT
+# 🌐 SEARCH IMPORT
 # -----------------------
 try:
     from ddgs import DDGS
 except ImportError:
     DDGS = None
+
+# -----------------------
+# 🌐 SCRAPER IMPORT
+# -----------------------
+import requests
+from bs4 import BeautifulSoup
 
 
 # -----------------------
@@ -33,7 +39,7 @@ def run_tool(action):
         return f"Analysis:\n{str(inp)}"
 
     # -----------------------
-    # 🌐 SEARCH (UPGRADED)
+    # 🌐 SEARCH
     # -----------------------
     elif act == "search":
         if DDGS is None:
@@ -42,7 +48,6 @@ def run_tool(action):
         try:
             query = str(inp).strip()
 
-            # 🔥 AUTO-IMPROVE WEAK QUERIES
             if len(query.split()) < 4:
                 query += " detailed explanation examples trends"
 
@@ -56,9 +61,8 @@ def run_tool(action):
                         f"{r.get('title')}\n{r.get('href')}\n{r.get('body')}"
                     )
 
-            # 🔥 FALLBACK IF EMPTY
             if not results_text:
-                return f"No strong results found.\nRefined query used: {query}"
+                return f"No strong results found.\nRefined query: {query}"
 
             return "Search results:\n\n" + "\n\n---\n\n".join(results_text)
 
@@ -66,7 +70,43 @@ def run_tool(action):
             return f"Search error: {str(e)}"
 
     # -----------------------
-    # 📁 SIMPLE FILE SAVE
+    # 🕷️ SCRAPE 🔥🔥
+    # -----------------------
+    elif act == "scrape":
+        try:
+            url = str(inp).strip()
+
+            headers = {
+                "User-Agent": "Mozilla/5.0"
+            }
+
+            response = requests.get(url, headers=headers, timeout=10)
+
+            if response.status_code != 200:
+                return f"Failed to fetch page: {response.status_code}"
+
+            soup = BeautifulSoup(response.text, "html.parser")
+
+            # Remove junk
+            for tag in soup(["script", "style", "nav", "footer", "header"]):
+                tag.extract()
+
+            text = soup.get_text(separator="\n")
+
+            # Clean lines
+            lines = [line.strip() for line in text.splitlines() if line.strip()]
+            clean_text = "\n".join(lines)
+
+            # 🔥 LIMIT SIZE (VERY IMPORTANT)
+            clean_text = clean_text[:4000]
+
+            return f"Scraped content from {url}:\n\n{clean_text}"
+
+        except Exception as e:
+            return f"Scrape error: {str(e)}"
+
+    # -----------------------
+    # 📁 SAVE FILE
     # -----------------------
     elif act == "save_file":
         try:
@@ -97,7 +137,6 @@ Content:
             filename = f"structured_{int(datetime.now().timestamp())}.txt"
             filepath = os.path.join("workspace", filename)
 
-            # 🔥 FIX: ALWAYS STRING SAFE
             if isinstance(inp, (dict, list)):
                 content = json.dumps(inp, indent=2)
             else:
@@ -111,7 +150,5 @@ Content:
         except Exception as e:
             return f"File error: {str(e)}"
 
-    # -----------------------
-    # ❓ UNKNOWN
-    # -----------------------
     return f"Unknown action: {act}"
+
