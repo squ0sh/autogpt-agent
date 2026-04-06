@@ -54,21 +54,34 @@ def chat(prompt, max_tokens=1200):
         temperature=0.5,
         max_tokens=max_tokens,
     )
-
     return response.choices[0].message.content.strip()
 
 
 # -----------------------
-# 🧠 STEP GENERATION (SMART)
+# 🧠 STEP GENERATION (UPGRADED)
 # -----------------------
 def generate_plan():
     step_number = len(memory) + 1
 
     global failed_steps
 
+    # 🧠 Use only recent memory (prevents overload)
+    recent_context = memory[-3:] if len(memory) > 3 else memory
+
+    # ⚠️ Failure adaptation
     strategy_note = ""
     if failed_steps >= 2:
-        strategy_note = "⚠️ Previous steps failed. CHANGE STRATEGY completely. Try a different approach, data source, or ACTION."
+        strategy_note = "⚠️ Previous steps failed. ABANDON current approach. Try a completely different strategy or ACTION TYPE."
+
+    # 🔥 Force action after early steps
+    force_action_note = ""
+    if step_number >= 2:
+        force_action_note = """
+MANDATORY:
+- You MUST produce a step that leads to a REAL ACTION (create, simulate, store)
+- DO NOT propose more research unless absolutely necessary
+- The system must start producing tangible outputs
+"""
 
     prompt = f"""
 You are an autonomous execution agent.
@@ -76,33 +89,46 @@ You are an autonomous execution agent.
 Goal:
 {GOAL}
 
-Previous steps:
-{memory}
+Recent context (last steps only):
+{recent_context}
 
 {strategy_note}
 
-RULES:
-- Each step MUST produce real progress
-- Avoid repeating research
-- If enough info → TAKE ACTION (create, simulate, store)
-- If stuck → change strategy completely
-- Move toward outcome, not just knowledge
+{force_action_note}
+
+CAPABILITIES AVAILABLE:
+- research → gather information
+- simulate → predict outcomes
+- create → generate real outputs (ideas, assets, structured data)
+- store → save useful results
+- transform → improve/refine outputs
+
+CORE RULES:
+- Every step MUST move closer to a REAL outcome
+- Avoid repeating previous work
+- Prefer ACTION over thinking
+- If enough information exists → STOP researching and START creating/simulating
+- Outputs should be usable, not theoretical
+
+THINK:
+What is the MOST LEVERAGE next step that produces a tangible result?
 
 Step {step_number}:
 
-Format:
-Step {step_number}: <title>
+Format STRICTLY:
 
-- action 1
-- action 2
-- action 3
+Step {step_number}: <clear outcome-focused title>
+
+- Action 1: <specific actionable task>
+- Action 2: <specific actionable task>
+- Action 3: <specific actionable task>
 """
 
     return chat(prompt, 700)
 
 
 # -----------------------
-# 🎯 ACTION DECISION (UPGRADED)
+# 🎯 ACTION DECISION
 # -----------------------
 def decide_action(plan):
     prompt = f"""
@@ -112,18 +138,18 @@ Plan:
 Choose the BEST next action:
 
 Options:
-- research → gather new knowledge
-- scrape → extract from URL
-- create → generate real artifact (file/output)
-- store → save structured data
-- simulate → model possible outcomes
-- transform → refine or restructure data
+- research
+- scrape
+- create
+- store
+- simulate
+- transform
 
 RULES:
 - If enough info exists → simulate or create
 - If data is missing → research
 - Avoid repeating same action type
-- Prefer ACTION over thinking when possible
+- Prefer ACTION over thinking
 
 Return JSON:
 {{ "action": "...", "input": "..." }}
@@ -134,7 +160,6 @@ Return JSON:
     except:
         decision = {"action": "research", "input": plan}
 
-    # Force scrape if URL detected
     if "http" in str(decision.get("input")):
         decision["action"] = "scrape"
 
@@ -153,7 +178,7 @@ def execute_action(action):
 
 
 # -----------------------
-# 🔍 REFLECTION (STRICT)
+# 🔍 REFLECTION
 # -----------------------
 def reflect(result):
     prompt = f"""
@@ -186,7 +211,7 @@ Next:
 
 
 # -----------------------
-# 🧠 GOAL CHECK (IMPROVED)
+# 🧠 GOAL CHECK
 # -----------------------
 def is_goal_complete():
     result = chat(

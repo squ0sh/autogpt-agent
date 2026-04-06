@@ -1,212 +1,169 @@
 import json
-import requests
 import os
-from bs4 import BeautifulSoup
 from datetime import datetime
+from openai import OpenAI
 
-try:
-    from ddgs import DDGS
-except:
-    DDGS = None
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-
-# -----------------------
-# QUALITY FILTER
-# -----------------------
-def is_good_content(text):
-    bad = ["enable javascript", "sign up", "cookie", "captcha"]
-
-    if len(text) < 200:
-        return False
-
-    for b in bad:
-        if b in text.lower():
-            return False
-
-    return True
+DATA_FILE = "agent_data.json"
 
 
 # -----------------------
-# CLEAN HTML
+# 🧾 STORAGE SYSTEM
 # -----------------------
-def clean_text(html):
-    soup = BeautifulSoup(html, "html.parser")
+def load_data():
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, "r") as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
 
-    for tag in soup(["script", "style", "nav", "footer", "header"]):
-        tag.extract()
 
-    text = soup.get_text()
-    lines = [l.strip() for l in text.splitlines() if l.strip()]
-
-    return "\n".join(lines)
+def save_data(data):
+    with open(DATA_FILE, "w") as f:
+        json.dump(data, f, indent=2)
 
 
 # -----------------------
-# EXTRACT INSIGHTS
+# 🧠 CORE LLM TOOL
 # -----------------------
-def extract_insights(text):
-    lines = text.split("\n")
-    insights = []
-
-    for l in lines:
-        if 60 < len(l) < 300:
-            insights.append(l)
-
-        if len(insights) >= 5:
-            break
-
-    return insights
+def llm(prompt, max_tokens=1000):
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.6,
+        max_tokens=max_tokens,
+    )
+    return response.choices[0].message.content.strip()
 
 
 # -----------------------
 # 🔍 RESEARCH
 # -----------------------
-def research(query):
-    if DDGS is None:
-        return "Install ddgs"
+def research(input_text):
+    prompt = f"""
+Research the following:
 
-    urls = []
+{input_text}
 
-    with DDGS() as ddgs:
-        results = ddgs.text(query, max_results=5)
-        for r in results:
-            urls.append(r.get("href"))
-
-    data = []
-
-    for url in urls:
-        try:
-            res = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
-            text = clean_text(res.text)
-
-            if not is_good_content(text):
-                continue
-
-            insights = extract_insights(text)
-
-            if insights:
-                data.append({
-                    "url": url,
-                    "insights": insights
-                })
-
-        except:
-            continue
-
-        if len(data) >= 3:
-            break
-
-    return json.dumps({
-        "query": query,
-        "sources": data
-    }, indent=2)
+Return:
+- Key findings
+- Actionable insights
+- Relevant structured data (if possible)
+"""
+    return llm(prompt)
 
 
 # -----------------------
-# 🌐 SCRAPE
+# 🧠 SIMULATION ENGINE
 # -----------------------
-def scrape(url):
+def simulate(input_text):
+    prompt = f"""
+Simulate realistic outcomes for:
+
+{input_text}
+
+Return JSON:
+{{
+  "scenario": "...",
+  "best_case": "...",
+  "worst_case": "...",
+  "most_likely": "...",
+  "success_probability": 0-1,
+  "key_factors": ["...", "..."]
+}}
+"""
     try:
-        res = requests.get(url, timeout=10)
-        text = clean_text(res.text)
-
-        if not is_good_content(text):
-            return "Low-quality content"
-
-        return text[:2000]
-
-    except Exception as e:
-        return str(e)
+        return json.loads(llm(prompt))
+    except:
+        return {"error": "simulation_failed", "raw": llm(prompt)}
 
 
 # -----------------------
-# 🧠 CREATE (REAL OUTPUT)
+# 🏗 CREATE (REAL ARTIFACTS)
 # -----------------------
-def create(data):
-    filename = f"output_{int(datetime.now().timestamp())}.txt"
+def create(input_text):
+    prompt = f"""
+Create a REAL, usable output for:
 
-    with open(filename, "w") as f:
-        f.write(str(data))
+{input_text}
 
-    return f"Created file: {filename}"
+Return structured JSON if possible.
+Examples:
+- business ideas
+- product concepts
+- plans
+- datasets
+- assets
 
-
-# -----------------------
-# 💾 STORE (STRUCTURED MEMORY)
-# -----------------------
-def store(data):
-    filename = "agent_store.json"
-
-    existing = []
-
-    if os.path.exists(filename):
-        with open(filename, "r") as f:
-            try:
-                existing = json.load(f)
-            except:
-                existing = []
-
-    existing.append({
-        "timestamp": str(datetime.now()),
-        "data": data
-    })
-
-    with open(filename, "w") as f:
-        json.dump(existing, f, indent=2)
-
-    return "Stored successfully"
+DO NOT explain — PRODUCE.
+"""
+    try:
+        return json.loads(llm(prompt))
+    except:
+        return {"output": llm(prompt)}
 
 
 # -----------------------
-# 🔮 SIMULATE (FIRST VERSION)
+# 💾 STORE
 # -----------------------
-def simulate(data):
-    """
-    Simple scenario modeling:
-    - best case
-    - worst case
-    - likely outcome
-    """
+def store(input_text):
+    data = load_data()
 
-    return json.dumps({
-        "simulation": {
-            "best_case": f"If executed well → strong positive outcome based on: {data[:200]}",
-            "worst_case": f"If assumptions fail → minimal or no impact",
-            "likely_outcome": f"Moderate progress with key dependency on execution quality"
-        }
-    }, indent=2)
+    entry = {
+        "timestamp": str(datetime.utcnow()),
+        "data": input_text
+    }
+
+    if "entries" not in data:
+        data["entries"] = []
+
+    data["entries"].append(entry)
+    save_data(data)
+
+    return {"status": "stored", "entry": entry}
 
 
 # -----------------------
 # 🔄 TRANSFORM
 # -----------------------
-def transform(data):
-    return f"Transformed version:\n{data}"
+def transform(input_text):
+    prompt = f"""
+Refine / improve / restructure:
+
+{input_text}
+
+Make it:
+- clearer
+- more actionable
+- more optimized
+"""
+    return llm(prompt)
 
 
 # -----------------------
-# 🎯 ROUTER
+# 🧩 TOOL ROUTER
 # -----------------------
 def run_tool(action):
-    act = action.get("action")
-    inp = action.get("input")
+    action_type = action.get("action", "research")
+    input_text = action.get("input", "")
 
-    if act == "research":
-        return research(inp)
+    if action_type == "research":
+        return research(input_text)
 
-    elif act == "scrape":
-        return scrape(inp)
+    elif action_type == "simulate":
+        return simulate(input_text)
 
-    elif act == "create":
-        return create(inp)
+    elif action_type == "create":
+        return create(input_text)
 
-    elif act == "store":
-        return store(inp)
+    elif action_type == "store":
+        return store(input_text)
 
-    elif act == "simulate":
-        return simulate(inp)
+    elif action_type == "transform":
+        return transform(input_text)
 
-    elif act == "transform":
-        return transform(inp)
-
-    return "Unknown action"
+    else:
+        return {"error": f"Unknown action: {action_type}"}
