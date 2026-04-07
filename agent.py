@@ -59,7 +59,7 @@ def chat(prompt, max_tokens=1200):
 
 
 # -----------------------
-# 🧠 PLAN GENERATION (UPGRADED)
+# 🧠 PLAN GENERATION
 # -----------------------
 def generate_plan():
     step_number = len(memory) + 1
@@ -82,11 +82,12 @@ Previous steps:
 {strategy_note}
 
 RULES:
-- Each step MUST produce REAL output (data, artifacts, structured results)
-- Avoid repeating research
-- If enough knowledge exists → CREATE or SIMULATE
-- Prefer ACTION over thinking
-- Do NOT just describe steps
+- Each step MUST produce REAL, GROUNDED output
+- Output must include either:
+  (1) a real source
+  (2) or be explicitly marked as simulation
+- Prefer CREATE, SIMULATE, TRANSFORM over thinking
+- Do NOT describe steps
 
 Step {step_number}:
 
@@ -120,10 +121,10 @@ Options:
 - transform
 
 RULES:
+- If real-world info needed → research/scrape
 - If enough info → create or simulate
-- If missing data → research
-- Avoid repeating same action type
-- Prefer REAL output actions
+- Avoid repeating actions
+- Prefer actions that produce structured, grounded output
 
 Return JSON:
 {{ "action": "...", "input": "..." }}
@@ -141,38 +142,38 @@ Return JSON:
 
 
 # -----------------------
+# 🧠 GROUNDING VALIDATION (NEW)
+# -----------------------
+def is_grounded_output(result):
+    if not isinstance(result, dict):
+        return False
+
+    # Must include grounding
+    if "source" in result:
+        return True
+
+    if result.get("simulation") is True:
+        return True
+
+    return False
+
+
+# -----------------------
 # 🧠 REALITY VALIDATION
 # -----------------------
 def is_real_output(result, action_type):
-    # If already structured → good
-    if isinstance(result, dict):
-        return True
-
-    text = str(result).lower()
-
-    fake_patterns = [
-        "here are",
-        "you should",
-        "consider",
-        "steps to",
-        "guide",
-        "strategy",
-        "this approach",
-        "you can",
-    ]
-
-    if any(p in text for p in fake_patterns):
+    if not isinstance(result, dict):
         return False
 
-    # Enforce strictness for real actions
-    if action_type in ["create", "simulate", "store"]:
-        return isinstance(result, dict)
+    # Strict for powerful actions
+    if action_type in ["create", "simulate", "store", "transform"]:
+        return is_grounded_output(result)
 
     return True
 
 
 # -----------------------
-# 🛠 TOOL EXECUTION (WITH RETRY)
+# 🛠 TOOL EXECUTION WITH ENFORCEMENT
 # -----------------------
 def execute_with_validation(action):
     attempts = 0
@@ -183,17 +184,26 @@ def execute_with_validation(action):
             from tools import run_tool
             result = run_tool(action)
         except Exception as e:
-            result = f"Tool error: {str(e)}"
+            result = {"error": str(e)}
 
         if is_real_output(result, action.get("action")):
             return result
 
         attempts += 1
 
-        # Force retry with stronger instruction
-        action["input"] = str(action["input"]) + "\n\nRETRY: Produce REAL structured output. No explanations."
+        # Force correction
+        action["input"] = str(action["input"]) + """
+        
+RETRY REQUIREMENTS:
+- Return ONLY structured JSON
+- MUST include either:
+  "source": "real URL or reference"
+  OR
+  "simulation": true
+- No explanations
+"""
 
-    return "FAILED: Could not produce real output"
+    return {"error": "FAILED: Could not produce grounded output"}
 
 
 # -----------------------
@@ -208,10 +218,10 @@ Result:
 {result}
 
 CRITICAL:
-- ONLY evaluate real output
-- If result == FAILED → must change strategy
-- If no meaningful progress → say EXACTLY: "No real progress made"
-- DO NOT invent success
+- Evaluate ONLY real, grounded outputs
+- If result contains error → must change strategy
+- If no progress → say EXACTLY: "No real progress made"
+- DO NOT assume success
 
 FORMAT:
 
@@ -241,7 +251,7 @@ Goal:
 Steps:
 {memory}
 
-Has the goal been TRULY achieved with REAL outputs?
+Has the goal been achieved with REAL, GROUNDED outputs?
 
 Answer ONLY:
 YES or NO
@@ -268,7 +278,7 @@ Reflection: {s['reflection']}
 ---
 """
 
-    return chat(f"Create a structured final report with REAL outputs:\n{text}", 2000)
+    return chat(f"Create a FINAL report using ONLY grounded outputs:\n{text}", 2000)
 
 
 def refine(final):
@@ -312,7 +322,7 @@ def run_agent_stream(goal, max_steps=6):
         action = decide_action(plan)
         yield f"event: action\ndata: {safe(json.dumps(action))}\n\n"
 
-        # 3. EXECUTE (WITH REALITY ENFORCEMENT)
+        # 3. EXECUTE (WITH REALITY + GROUNDING)
         result = execute_with_validation(action)
         yield f"event: result\ndata: {safe(result)}\n\n"
 
@@ -321,7 +331,7 @@ def run_agent_stream(goal, max_steps=6):
         yield f"event: reflection\ndata: {safe(reflection)}\n\n"
 
         # 5. FAILURE TRACKING
-        if "No real progress made" in reflection or "FAILED" in result:
+        if "No real progress made" in reflection or "error" in str(result).lower():
             failed_steps += 1
         else:
             failed_steps = 0
