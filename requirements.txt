@@ -3,5 +3,4 @@ python-dotenv
 tiktoken
 colorama
 flask
-ddgs
-beautifulsoup4
+duckduckgo-search
