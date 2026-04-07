@@ -54,27 +54,21 @@ def chat(prompt, max_tokens=1200):
         temperature=0.4,
         max_tokens=max_tokens,
     )
-
     return response.choices[0].message.content.strip()
 
 
 # -----------------------
-# 🧠 PLAN GENERATION (UPGRADED)
+# 🧠 PLAN GENERATION
 # -----------------------
 def generate_plan():
     step_number = len(memory) + 1
 
-    global failed_steps
-
     strategy_note = ""
     if failed_steps >= 2:
         strategy_note = """
-⚠️ CRITICAL: Previous steps failed.
-
-MANDATORY:
-- You MUST use a DIFFERENT action type
-- You MUST produce REAL output (scrape, create, or store)
-- DO NOT use research unless paired with scraping
+⚠️ MUST CHANGE STRATEGY:
+- Use search → scrape pipeline
+- Produce real outputs only
 """
 
     prompt = f"""
@@ -89,11 +83,10 @@ Previous steps:
 {strategy_note}
 
 RULES:
-- Each step MUST produce REAL output
-- Prefer ACTION over thinking
-- If stuck → FORCE scrape or create
-- Avoid repeating past failures
-- Move toward tangible outcomes
+- Prefer real-world actions
+- Use search if no URL exists
+- Then scrape
+- Then transform/store
 
 Step {step_number}:
 
@@ -109,7 +102,7 @@ Step {step_number}: <title>
 
 
 # -----------------------
-# 🎯 ACTION DECISION (ENFORCED)
+# 🎯 ACTION DECISION
 # -----------------------
 def decide_action(plan):
     prompt = f"""
@@ -119,7 +112,7 @@ Plan:
 Choose ONE action:
 
 Options:
-- research
+- search
 - scrape
 - create
 - store
@@ -127,10 +120,9 @@ Options:
 - transform
 
 RULES:
-- If URL exists → scrape
-- If previous step failed → DO NOT use research
-- If data exists → transform or store
-- Prefer real-world execution
+- If no URL → search
+- If URL → scrape
+- Prefer real actions
 
 Return JSON:
 {{ "action": "...", "input": "..." }}
@@ -139,56 +131,38 @@ Return JSON:
     try:
         decision = json.loads(chat(prompt, 300))
     except:
-        decision = {"action": "research", "input": plan}
+        decision = {"action": "search", "input": plan}
 
-    # 🔥 FORCE SCRAPE IF URL
-    if "http" in str(decision.get("input")):
-        decision["action"] = "scrape"
+    input_text = str(decision.get("input", ""))
 
-    # 🔥 BREAK RESEARCH LOOP
-    if decision["action"] == "research" and failed_steps >= 1:
-        decision["action"] = "scrape"
-
-    # 🔥 ESCALATION LOGIC
-    if failed_steps >= 2:
-        decision["action"] = "scrape"
+    # 🔥 AUTO FIX
+    if decision["action"] == "scrape" and not input_text.startswith("http"):
+        decision["action"] = "search"
 
     return decision
 
 
 # -----------------------
-# 🧠 REALITY CHECK
-# -----------------------
-def is_simulation(result):
-    return isinstance(result, dict) and result.get("simulation") is True
-
-
-def is_error(result):
-    return "error" in str(result).lower()
-
-
-# -----------------------
-# 🛠 EXECUTION WITH ESCALATION
+# 🧠 EXECUTION (CHAINING)
 # -----------------------
 def execute_with_validation(action):
     from tools import run_tool
 
     result = run_tool(action)
 
-    # 🔥 IF SIMULATION → FORCE REAL ACTION
-    if is_simulation(result):
-        if action["action"] != "scrape":
-            forced = {
-                "action": "scrape",
-                "input": action.get("input", "")
-            }
-            result = run_tool(forced)
+    # 🔗 AUTO CHAIN: search → scrape
+    if action["action"] == "search" and "source" in result:
+        scrape_action = {
+            "action": "scrape",
+            "input": result["source"]
+        }
+        result = run_tool(scrape_action)
 
     return result
 
 
 # -----------------------
-# 🔍 REFLECTION (STRICT)
+# 🔍 REFLECTION
 # -----------------------
 def reflect(result):
     prompt = f"""
@@ -199,9 +173,8 @@ Result:
 {result}
 
 CRITICAL:
-- If result is simulation → say "No real progress made"
-- If error → must change strategy
-- ONLY count real-world outputs
+- If no real data → "No real progress made"
+- If error → change strategy
 
 FORMAT:
 
@@ -220,7 +193,7 @@ Next:
 
 
 # -----------------------
-# 🧠 GOAL CHECK
+# 🧠 GOAL CHECK (STRICT)
 # -----------------------
 def is_goal_complete():
     result = chat(
@@ -231,7 +204,7 @@ Goal:
 Steps:
 {memory}
 
-Has REAL progress been achieved?
+Has REAL, VERIFIABLE progress been made?
 
 Answer ONLY:
 YES or NO
@@ -256,7 +229,7 @@ Result: {s['result']}
 ---
 """
 
-    return chat(f"Create a FINAL report using REAL outputs only:\n{text}", 2000)
+    return chat(f"Create FINAL report using REAL data only:\n{text}", 2000)
 
 
 def refine(final):
@@ -271,7 +244,7 @@ def safe(text):
 
 
 # -----------------------
-# 🚀 MAIN LOOP (UPGRADED)
+# 🚀 MAIN LOOP
 # -----------------------
 def run_agent_stream(goal, max_steps=6):
     global GOAL, memory, RUN_ID, STOP_FLAG, failed_steps
@@ -292,29 +265,24 @@ def run_agent_stream(goal, max_steps=6):
 
         yield f"event: step\ndata: {step+1}\n\n"
 
-        # 1. PLAN
         plan = generate_plan()
         yield f"event: plan\ndata: {safe(plan)}\n\n"
 
-        # 2. DECIDE
         action = decide_action(plan)
         yield f"event: action\ndata: {safe(json.dumps(action))}\n\n"
 
-        # 3. EXECUTE
         result = execute_with_validation(action)
         yield f"event: result\ndata: {safe(result)}\n\n"
 
-        # 4. REFLECT
         reflection = reflect(result)
         yield f"event: reflection\ndata: {safe(reflection)}\n\n"
 
-        # 5. FAILURE TRACKING (UPGRADED)
-        if is_simulation(result) or is_error(result) or "No real progress made" in reflection:
+        # failure tracking
+        if "error" in str(result).lower() or "No real progress made" in reflection:
             failed_steps += 1
         else:
             failed_steps = 0
 
-        # 6. MEMORY
         memory.append({
             "step": step + 1,
             "plan": plan,
@@ -325,7 +293,6 @@ def run_agent_stream(goal, max_steps=6):
 
         save_memory()
 
-        # 7. GOAL CHECK
         if step >= 2 and is_goal_complete():
             break
 
@@ -335,3 +302,4 @@ def run_agent_stream(goal, max_steps=6):
 
     yield f"event: final\ndata: {safe(final)}\n\n"
     yield f"event: done\ndata: done\n\n"
+
