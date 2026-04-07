@@ -12,7 +12,6 @@ RUN_ID = None
 STOP_FLAG = False
 
 MEMORY_FILE = "memory.json"
-OUTPUT_DIR = "outputs"
 
 
 # -----------------------
@@ -56,7 +55,7 @@ def generate_plan():
     step_number = len(memory) + 1
 
     prompt = f"""
-You are an execution agent working step-by-step.
+You are a general-purpose autonomous agent.
 
 Goal:
 {GOAL}
@@ -68,9 +67,9 @@ Current step: {step_number}
 
 RULES:
 - ONLY generate Step {step_number}
-- DO NOT generate multiple steps
-- Each step must move the goal forward
+- Each step must move toward real understanding or useful output
 - Avoid vague steps
+- Prefer actions that produce real-world information
 
 FORMAT:
 Step {step_number}: <short title>
@@ -84,7 +83,7 @@ Step {step_number}: <short title>
 
 
 # -----------------------
-# 🎯 ACTION SELECTION (UPGRADED)
+# 🎯 ACTION SELECTION (SEARCH-FIRST)
 # -----------------------
 def decide_action(plan, step):
     prompt = f"""
@@ -94,31 +93,32 @@ Plan:
 Step: {step}
 
 RULES:
-- You MUST produce something tangible
-- Avoid vague actions like "execute next step"
-- If step >= 3 → MUST use "write"
-- Input must contain REAL usable content
+- You MUST produce useful output
+- NO placeholders like "execute next step"
+- Prefer SEARCH for real-world grounding
+- Use ANALYZE to synthesize findings
+- WRITE only for summarizing insights
 
 Actions:
-- write (create real output file)
-- analyze
-- search
+- search (find real information + links)
+- analyze (break down info)
+- write (summarize findings clearly)
 
 Return JSON:
 {{
     "action": "...",
-    "input": "specific useful content"
+    "input": "specific query or instruction"
 }}
 """
 
     try:
         decision = json.loads(chat(prompt, max_tokens=300))
     except:
-        decision = {"action": "write", "input": plan}
+        decision = {"action": "search", "input": plan}
 
-    # 🔥 HARD ENFORCEMENT
-    if step >= 3:
-        decision["action"] = "write"
+    # 🔥 FORCE SEARCH EARLY
+    if step <= 2:
+        decision["action"] = "search"
 
     return decision
 
@@ -137,7 +137,7 @@ def execute_action(action):
 
 
 # -----------------------
-# 🔍 REFLECTION
+# 🔍 REFLECTION (UPGRADED)
 # -----------------------
 def reflect(result):
     prompt = f"""
@@ -150,31 +150,45 @@ Result:
 Evaluate progress.
 
 RULES:
-- Be honest
-- DO NOT claim goal complete unless files/products exist
-- Focus on real-world progress
+- Must reference REAL findings
+- Identify what was learned
+- Suggest next concrete step
+- DO NOT be generic
 
 FORMAT:
 Evaluation:
-<short evaluation>
+<what was actually learned>
 
 Next:
-<next step>
+<next specific step>
 """
     return chat(prompt, max_tokens=500)
 
 
 # -----------------------
-# 🧠 GOAL CHECK (REAL)
+# 🧠 GOAL CHECK (SMART)
 # -----------------------
 def is_goal_complete():
-    if not os.path.exists(OUTPUT_DIR):
+    if len(memory) < 3:
         return False
 
-    files = os.listdir(OUTPUT_DIR)
+    prompt = f"""
+Goal:
+{GOAL}
 
-    # ✅ Require at least 2 real outputs
-    return len(files) >= 2
+Steps:
+{memory}
+
+Has the goal been meaningfully addressed with:
+- real research
+- useful insights
+- actionable understanding
+
+Return ONLY:
+YES or NO
+"""
+    result = chat(prompt, max_tokens=10).lower()
+    return "yes" in result
 
 
 # -----------------------
@@ -203,7 +217,7 @@ Reflection:
 """
 
     prompt = f"""
-You are compiling a COMPLETE EXECUTION REPORT.
+You are compiling a FINAL REPORT.
 
 Goal:
 {GOAL}
@@ -213,24 +227,21 @@ Execution Steps:
 
 INSTRUCTIONS:
 - Include ALL steps
-- Do NOT skip anything
-- Expand clarity where useful
-- Keep full structure
+- Keep useful links and findings
+- Synthesize insights clearly
+- Maintain structure
 
 FORMAT:
 
 # Final Result
 
 ## Goal
-...
 
-## Step 1
-...
+## Key Findings
 
-## Step 2
-...
+## Step-by-Step Breakdown
 
-(continue through all steps)
+## Final Insight
 """
 
     return chat(prompt, max_tokens=1800)
@@ -246,9 +257,8 @@ Improve clarity WITHOUT removing content:
 {final}
 
 Rules:
-- DO NOT shorten
-- DO NOT remove steps
-- Only improve readability
+- Do NOT shorten
+- Keep all insights
 """
     return chat(prompt, max_tokens=1800)
 
@@ -279,8 +289,6 @@ def run_agent_stream(goal, max_steps=6):
     STOP_FLAG = False
     RUN_ID = str(uuid.uuid4())
 
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-
     MIN_STEPS = 3
 
     yield f"event: start\ndata: {safe(goal)}\n\n"
@@ -295,23 +303,18 @@ def run_agent_stream(goal, max_steps=6):
 
         yield f"event: step\ndata: {step+1}\n\n"
 
-        # PLAN
         plan = generate_plan()
         yield f"event: plan\ndata: {safe(plan)}\n\n"
 
-        # ACTION
         action = decide_action(plan, step + 1)
         yield f"event: action\ndata: {safe(json.dumps(action))}\n\n"
 
-        # EXECUTE
         result = execute_action(action)
         yield f"event: result\ndata: {safe(result)}\n\n"
 
-        # REFLECT
         reflection = reflect(result)
         yield f"event: reflection\ndata: {safe(reflection)}\n\n"
 
-        # MEMORY
         memory.append({
             "step": step + 1,
             "plan": plan,
@@ -322,25 +325,14 @@ def run_agent_stream(goal, max_steps=6):
 
         save_memory()
 
-        # STOP CONDITION
         if len(memory) >= MIN_STEPS and is_goal_complete():
             break
 
         step += 1
         time.sleep(0.3)
 
-    # FINAL OUTPUT
     final = generate_final()
     improved = refine(final)
 
-    filename = f"final_{RUN_ID}.txt"
-    filepath = os.path.join(OUTPUT_DIR, filename)
-
-    with open(filepath, "w") as f:
-        f.write(improved)
-
-    download_url = f"/download/{filename}"
-
     yield f"event: final\ndata: {safe(improved)}\n\n"
-    yield f"event: file\ndata: {safe(download_url)}\n\n"
     yield f"event: done\ndata: Goal completed\n\n"
