@@ -11,8 +11,6 @@ memory = []
 RUN_ID = None
 STOP_FLAG = False
 
-MODE = "think"  # 🔥 "think" or "act"
-
 MEMORY_FILE = "memory.json"
 
 
@@ -30,7 +28,6 @@ def save_memory():
 
     data[RUN_ID] = {
         "goal": GOAL,
-        "mode": MODE,
         "steps": memory
     }
 
@@ -39,7 +36,7 @@ def save_memory():
 
 
 # -----------------------
-# 🧠 CORE CHAT
+# 🧠 CORE CHAT (FIXED TOKENS)
 # -----------------------
 def chat(prompt, max_tokens=1200):
     response = client.chat.completions.create(
@@ -58,9 +55,7 @@ def generate_plan():
     step_number = len(memory) + 1
 
     prompt = f"""
-You are an autonomous agent.
-
-MODE: {MODE}
+You are an execution agent working step-by-step.
 
 Goal:
 {GOAL}
@@ -72,9 +67,8 @@ Current step: {step_number}
 
 RULES:
 - ONLY generate Step {step_number}
-- If MODE = think → research, analyze, reason only
-- If MODE = act → actions may be executed
-- DO NOT assume anything has been completed unless proven
+- DO NOT generate multiple steps
+- Each step must move the goal forward
 
 FORMAT:
 Step {step_number}: <short title>
@@ -90,46 +84,27 @@ Step {step_number}: <short title>
 # -----------------------
 # 🎯 ACTION SELECTION
 # -----------------------
-def decide_action(plan, step):
+def decide_action(plan):
     prompt = f"""
 Plan:
 {plan}
 
-Mode: {MODE}
-Step: {step}
-
-RULES:
-- THINK MODE:
-    - Prefer SEARCH + ANALYZE
-    - No real-world execution
-- ACT MODE:
-    - Can execute real actions
-
-- Always produce useful output
-- NEVER say "execute next step"
-
-Actions:
-- search
-- analyze
+Choose ONE action:
 - write
+- analyze
+- search
 
 Return JSON:
 {{
     "action": "...",
-    "input": "specific instruction"
+    "input": "short instruction"
 }}
 """
 
     try:
-        decision = json.loads(chat(prompt, max_tokens=300))
+        return json.loads(chat(prompt, max_tokens=300))
     except:
-        decision = {"action": "search", "input": f"{GOAL} research"}
-
-    # 🔥 FORCE SEARCH EARLY
-    if step <= 2:
-        decision["action"] = "search"
-
-    return decision
+        return {"action": "write", "input": "execute next step"}
 
 
 # -----------------------
@@ -142,39 +117,36 @@ def execute_action(action):
     except Exception as e:
         result = f"Tool error: {str(e)}"
 
+    if isinstance(result, str) and "Generated content:" in result:
+        result = result.split(":", 1)[-1].strip()
+
     return result
 
 
 # -----------------------
-# 🔍 REFLECTION (REALITY SAFE)
+# 🔍 REFLECTION
 # -----------------------
 def reflect(result):
     prompt = f"""
 Goal:
 {GOAL}
 
-Mode:
-{MODE}
-
 Result:
 {result}
 
-CRITICAL:
-- In THINK mode → NOTHING was actually executed
-- Only research and reasoning happened
-- Do NOT assume real-world completion
+Evaluate progress.
+
+RULES:
+- DO NOT say goal complete unless truly done
+- Be realistic
+- Suggest next improvement
 
 FORMAT:
-
 Evaluation:
-- What was actually learned?
-- Was the result relevant?
-
-Reality Check:
-- Was anything actually executed? (usually NO)
+<short evaluation>
 
 Next:
-- What should be explored next?
+<next step>
 """
     return chat(prompt, max_tokens=600)
 
@@ -183,30 +155,24 @@ Next:
 # 🧠 GOAL CHECK
 # -----------------------
 def is_goal_complete():
-    if len(memory) < 3:
-        return False
-
     prompt = f"""
 Goal:
 {GOAL}
 
-Mode:
-{MODE}
-
-Steps:
+Steps taken:
 {memory}
 
-Has the goal been meaningfully explored and understood?
+Has the goal been FULLY achieved?
 
 Return ONLY:
 YES or NO
 """
-    result = chat(prompt, max_tokens=10).lower()
+    result = chat(prompt, max_tokens=10).strip().lower()
     return "yes" in result
 
 
 # -----------------------
-# 🧠 FINAL OUTPUT
+# 🧠 FINAL OUTPUT (FIXED 🔥)
 # -----------------------
 def generate_final():
     steps_text = ""
@@ -218,9 +184,6 @@ Step {step['step']}
 Plan:
 {step['plan']}
 
-Action:
-{step['action']}
-
 Result:
 {step['result']}
 
@@ -231,9 +194,7 @@ Reflection:
 """
 
     prompt = f"""
-You are compiling a FINAL REPORT.
-
-MODE: {MODE}
+You are compiling a FINAL COMPLETE EXECUTION REPORT.
 
 Goal:
 {GOAL}
@@ -242,28 +203,34 @@ Execution Steps:
 {steps_text}
 
 INSTRUCTIONS:
-- Include ALL steps
-- Do NOT claim real-world execution in THINK mode
-- Focus on insights and reasoning
+- Reconstruct ALL steps clearly
+- DO NOT skip steps
+- DO NOT overly summarize
+- Keep full detail
+- Expand for clarity if needed
+- Ensure ALL steps are present
 
 FORMAT:
 
 # Final Result
 
 ## Goal
+...
 
-## Key Findings
+## Step 1
+...
 
-## Step-by-Step Breakdown
+## Step 2
+...
 
-## Final Insight
+(continue through all steps)
 """
 
     return chat(prompt, max_tokens=1800)
 
 
 # -----------------------
-# 🧠 REFINE
+# 🧠 SAFE REFINE (NO TRUNCATION)
 # -----------------------
 def refine(final):
     prompt = f"""
@@ -272,8 +239,9 @@ Improve clarity WITHOUT removing content:
 {final}
 
 Rules:
-- Keep all steps
-- Keep all insights
+- DO NOT shorten
+- DO NOT remove steps
+- Only improve readability
 """
     return chat(prompt, max_tokens=1800)
 
@@ -296,26 +264,26 @@ def safe(text):
 # -----------------------
 # 🚀 MAIN LOOP
 # -----------------------
-def run_agent_stream(goal, max_steps=6, mode="think"):
-    global GOAL, memory, RUN_ID, STOP_FLAG, MODE
+def run_agent_stream(goal, max_steps=6):
+    global GOAL, memory, RUN_ID, STOP_FLAG
 
     GOAL = goal
-    MODE = mode
     memory = []
     STOP_FLAG = False
     RUN_ID = str(uuid.uuid4())
 
+    os.makedirs("outputs", exist_ok=True)
+
     MIN_STEPS = 3
 
     yield f"event: start\ndata: {safe(goal)}\n\n"
-    yield f"event: mode\ndata: {safe(MODE)}\n\n"
 
     step = 0
 
     while step < max_steps:
 
         if STOP_FLAG:
-            yield f"event: stopped\ndata: Stopped\n\n"
+            yield f"event: stopped\ndata: Stopped by user\n\n"
             return
 
         yield f"event: step\ndata: {step+1}\n\n"
@@ -323,7 +291,7 @@ def run_agent_stream(goal, max_steps=6, mode="think"):
         plan = generate_plan()
         yield f"event: plan\ndata: {safe(plan)}\n\n"
 
-        action = decide_action(plan, step + 1)
+        action = decide_action(plan)
         yield f"event: action\ndata: {safe(json.dumps(action))}\n\n"
 
         result = execute_action(action)
@@ -342,14 +310,26 @@ def run_agent_stream(goal, max_steps=6, mode="think"):
 
         save_memory()
 
-        if len(memory) >= MIN_STEPS and is_goal_complete():
-            break
+        if len(memory) >= MIN_STEPS:
+            if is_goal_complete():
+                break
 
         step += 1
         time.sleep(0.3)
 
+    # 🧠 FINAL OUTPUT
     final = generate_final()
     improved = refine(final)
 
+    # ✅ SAVE FILE (NOW FULLY COMPLETE)
+    filename = f"final_{RUN_ID}.txt"
+    filepath = os.path.join("outputs", filename)
+
+    with open(filepath, "w") as f:
+        f.write(improved)
+
+    download_url = f"/download/{filename}"
+
     yield f"event: final\ndata: {safe(improved)}\n\n"
-    yield f"event: done\ndata: complete\n\n"
+    yield f"event: file\ndata: {safe(download_url)}\n\n"
+    yield f"event: done\ndata: Goal completed\n\n"

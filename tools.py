@@ -1,88 +1,46 @@
 from duckduckgo_search import DDGS
 
 
-# -----------------------
-# 🧩 TOOL ROUTER
-# -----------------------
 def run_tool(action):
     act = action.get("action")
-    inp = action.get("input", "")
+    inp = action.get("input")
 
     # -----------------------
-    # ✍️ WRITE (IDEA / OUTPUT GENERATION)
+    # ✍️ WRITE TOOL
     # -----------------------
     if act == "write":
-        return {
-            "type": "generated",
-            "content": inp
-        }
+        return f"Generated content: {inp}"
 
     # -----------------------
-    # 🧠 ANALYZE
+    # 🧠 ANALYZE TOOL
     # -----------------------
     elif act == "analyze":
-        return {
-            "type": "analysis",
-            "content": inp
-        }
+        return f"Analysis: {inp}"
 
     # -----------------------
-    # 🌐 SEARCH (IMPROVED 🔥)
+    # 🌐 REAL SEARCH TOOL 🔥
     # -----------------------
     elif act == "search":
         try:
-            results_clean = []
+            results_text = []
 
             with DDGS() as ddgs:
-                results = ddgs.text(inp, max_results=8)
+                results = ddgs.text(inp, max_results=5)
 
                 for r in results:
-                    title = r.get("title", "")
-                    link = r.get("href", "")
-                    snippet = r.get("body", "")
+                    results_text.append(
+                        f"{r['title']}\n{r['href']}\n{r['body']}"
+                    )
 
-                    # 🔥 FILTER LOW-QUALITY / IRRELEVANT RESULTS
-                    if not link:
-                        continue
+            if not results_text:
+                return "No search results found."
 
-                    if any(bad in link.lower() for bad in [
-                        "forum",
-                        "thread",
-                        "reddit",
-                        "pinterest",
-                        "login"
-                    ]):
-                        continue
-
-                    results_clean.append({
-                        "title": title,
-                        "link": link,
-                        "snippet": snippet[:200]
-                    })
-
-            if not results_clean:
-                return {
-                    "type": "search",
-                    "results": [],
-                    "message": "No high-quality results found"
-                }
-
-            return {
-                "type": "search",
-                "query": inp,
-                "results": results_clean
-            }
+            return "Search results:\n\n" + "\n\n---\n\n".join(results_text)
 
         except Exception as e:
-            return {
-                "type": "error",
-                "message": f"Search error: {str(e)}"
-            }
+            return f"Search error: {str(e)}"
 
     # -----------------------
     # ❓ UNKNOWN
     # -----------------------
-    return {
-        "type": "error",
-        "message": f"Unknown action: {act}"
-    }
+    return "Unknown action"
