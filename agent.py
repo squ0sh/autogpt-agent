@@ -10,22 +10,9 @@ GOAL = ""
 memory = []
 RUN_ID = None
 STOP_FLAG = False
+failed_steps = 0
 
 MEMORY_FILE = "memory.json"
-
-# -----------------------
-# 🧠 AGENT STATE (NEW BRAIN)
-# -----------------------
-state = {
-    "strategy": "explore",
-    "failed_steps": 0,
-    "useful_steps": 0,
-    "last_action": None,
-    "confidence": "low",
-    "loop_risk": "low",
-    "progress_level": "none",
-    "last_result_hash": ""
-}
 
 
 # -----------------------
@@ -34,11 +21,11 @@ state = {
 def save_memory():
     data = {}
     if os.path.exists(MEMORY_FILE):
-        try:
-            with open(MEMORY_FILE, "r") as f:
+        with open(MEMORY_FILE, "r") as f:
+            try:
                 data = json.load(f)
-        except:
-            data = {}
+            except:
+                data = {}
 
     data[RUN_ID] = {
         "goal": GOAL,
@@ -71,12 +58,30 @@ def chat(prompt, max_tokens=1200):
 
 
 # -----------------------
-# 🧠 PLAN (NOW AWARE)
+# 🧠 STEP GENERATION (UPGRADED)
 # -----------------------
 def generate_plan():
     step_number = len(memory) + 1
 
+    global failed_steps
+
+    # 🧠 Use only recent memory (prevents overload)
     recent_context = memory[-3:] if len(memory) > 3 else memory
+
+    # ⚠️ Failure adaptation
+    strategy_note = ""
+    if failed_steps >= 2:
+        strategy_note = "⚠️ Previous steps failed. ABANDON current approach. Try a completely different strategy or ACTION TYPE."
+
+    # 🔥 Force action after early steps
+    force_action_note = ""
+    if step_number >= 2:
+        force_action_note = """
+MANDATORY:
+- You MUST produce a step that leads to a REAL ACTION (create, simulate, store)
+- DO NOT propose more research unless absolutely necessary
+- The system must start producing tangible outputs
+"""
 
     prompt = f"""
 You are an autonomous execution agent.
@@ -84,35 +89,39 @@ You are an autonomous execution agent.
 Goal:
 {GOAL}
 
-Recent steps:
+Recent context (last steps only):
 {recent_context}
 
-Agent State:
-{state}
+{strategy_note}
 
-CRITICAL:
-- ONLY real-world progress counts
-- Thinking, planning, or long text DOES NOT count
-- You MUST produce something usable or storable
+{force_action_note}
 
-STRATEGY MODE:
-{state["strategy"]}
+CAPABILITIES AVAILABLE:
+- research → gather information
+- simulate → predict outcomes
+- create → generate real outputs (ideas, assets, structured data)
+- store → save useful results
+- transform → improve/refine outputs
 
-RULES:
-- If stuck → try a DIFFERENT action type
-- If no real output yet → prioritize STORE
-- Avoid repeating same action
-- Push toward execution
+CORE RULES:
+- Every step MUST move closer to a REAL outcome
+- Avoid repeating previous work
+- Prefer ACTION over thinking
+- If enough information exists → STOP researching and START creating/simulating
+- Outputs should be usable, not theoretical
+
+THINK:
+What is the MOST LEVERAGE next step that produces a tangible result?
 
 Step {step_number}:
 
-FORMAT:
+Format STRICTLY:
 
-Step {step_number}: <outcome>
+Step {step_number}: <clear outcome-focused title>
 
-- Action 1: ...
-- Action 2: ...
-- Action 3: ...
+- Action 1: <specific actionable task>
+- Action 2: <specific actionable task>
+- Action 3: <specific actionable task>
 """
 
     return chat(prompt, 700)
@@ -126,21 +135,21 @@ def decide_action(plan):
 Plan:
 {plan}
 
-State:
-{state}
-
-Choose BEST action:
+Choose the BEST next action:
 
 Options:
 - research
+- scrape
 - create
-- simulate
 - store
+- simulate
 - transform
 
-IMPORTANT:
-- STORE = highest priority if something useful exists
-- Avoid repeating last action: {state["last_action"]}
+RULES:
+- If enough info exists → simulate or create
+- If data is missing → research
+- Avoid repeating same action type
+- Prefer ACTION over thinking
 
 Return JSON:
 {{ "action": "...", "input": "..." }}
@@ -150,6 +159,9 @@ Return JSON:
         decision = json.loads(chat(prompt, 300))
     except:
         decision = {"action": "research", "input": plan}
+
+    if "http" in str(decision.get("input")):
+        decision["action"] = "scrape"
 
     return decision
 
@@ -162,79 +174,63 @@ def execute_action(action):
         from tools import run_tool
         return run_tool(action)
     except Exception as e:
-        return {"error": str(e)}
+        return f"Tool error: {str(e)}"
 
 
 # -----------------------
-# 🧠 EVALUATION (REALITY ENGINE)
+# 🔍 REFLECTION
 # -----------------------
-def evaluate(result, action):
-    text = str(result).lower()
+def reflect(result):
+    prompt = f"""
+Goal:
+{GOAL}
 
-    # REALNESS
-    is_real = action["action"] == "store"
+Result:
+{result}
 
-    # QUALITY
-    length_score = min(len(text) / 500, 1.0)
-    structure_score = 0.8 if isinstance(result, dict) else 0.3
+CRITICAL:
+- ONLY evaluate real output
+- If no meaningful progress → say EXACTLY: "No real progress made"
+- If action created something useful → recognize it
+- DO NOT invent outcomes
 
-    quality_score = 0.9 if is_real else (length_score + structure_score) / 2
+FORMAT:
 
-    result_type = "real" if is_real else "simulated"
+Evaluation:
+...
 
-    useful = is_real
-    novel = text != state["last_result_hash"]
+Insights:
+- ...
+- ...
+- ...
 
-    return {
-        "useful": useful,
-        "novel": novel,
-        "quality_score": round(quality_score, 2),
-        "result_type": result_type,
-        "is_real": is_real
-    }
-
-
-# -----------------------
-# 🧠 STATE UPDATE
-# -----------------------
-def update_state(evaluation, action, result):
-    global state
-
-    if evaluation["useful"]:
-        state["useful_steps"] += 1
-        state["failed_steps"] = 0
-        state["confidence"] = "medium"
-    else:
-        state["failed_steps"] += 1
-
-    if not evaluation["novel"]:
-        state["loop_risk"] = "high"
-    else:
-        state["loop_risk"] = "low"
-
-    if evaluation["result_type"] == "real":
-        state["progress_level"] = "meaningful"
-
-    if state["failed_steps"] >= 2:
-        state["strategy"] = "explore"
-    elif evaluation["is_real"]:
-        state["strategy"] = "build"
-
-    state["last_action"] = action["action"]
-    state["last_result_hash"] = str(result)[:200]
+Next:
+...
+"""
+    return chat(prompt, 700)
 
 
 # -----------------------
-# 🧠 STOP CONDITION
+# 🧠 GOAL CHECK
 # -----------------------
-def should_stop(evaluation):
-    if state["useful_steps"] >= 2 and evaluation["is_real"]:
-        return True
+def is_goal_complete():
+    result = chat(
+        f"""
+Goal:
+{GOAL}
 
-    if state["failed_steps"] >= 4:
-        return True
+Steps:
+{memory}
 
-    return False
+Has the goal been TRULY achieved with real outcomes (not just research)?
+
+Answer ONLY:
+YES or NO
+""",
+        30
+    ).lower()
+
+    return "yes" in result
 
 
 # -----------------------
@@ -246,16 +242,18 @@ def generate_final():
     for s in memory:
         text += f"""
 Step {s['step']}
+Plan: {s['plan']}
 Action: {s['action']}
 Result: {s['result']}
+Reflection: {s['reflection']}
 ---
 """
 
-    return chat(f"Create final report:\n{text}", 1500)
+    return chat(f"Create a clear, structured final report:\n{text}", 2000)
 
 
 def refine(final):
-    return chat(f"Improve clarity:\n{final}", 1200)
+    return chat(f"Improve clarity and readability:\n{final}", 1500)
 
 
 # -----------------------
@@ -269,23 +267,13 @@ def safe(text):
 # 🚀 MAIN LOOP
 # -----------------------
 def run_agent_stream(goal, max_steps=6):
-    global GOAL, memory, RUN_ID, STOP_FLAG, state
+    global GOAL, memory, RUN_ID, STOP_FLAG, failed_steps
 
     GOAL = goal
     memory = []
     STOP_FLAG = False
+    failed_steps = 0
     RUN_ID = str(uuid.uuid4())
-
-    state = {
-        "strategy": "explore",
-        "failed_steps": 0,
-        "useful_steps": 0,
-        "last_action": None,
-        "confidence": "low",
-        "loop_risk": "low",
-        "progress_level": "none",
-        "last_result_hash": ""
-    }
 
     yield f"event: start\ndata: {safe(goal)}\n\n"
 
@@ -297,36 +285,48 @@ def run_agent_stream(goal, max_steps=6):
 
         yield f"event: step\ndata: {step+1}\n\n"
 
+        # 1. PLAN
         plan = generate_plan()
         yield f"event: plan\ndata: {safe(plan)}\n\n"
 
+        # 2. DECIDE
         action = decide_action(plan)
         yield f"event: action\ndata: {safe(json.dumps(action))}\n\n"
 
+        # 3. EXECUTE
         result = execute_action(action)
         yield f"event: result\ndata: {safe(result)}\n\n"
 
-        evaluation = evaluate(result, action)
-        yield f"event: evaluation\ndata: {safe(evaluation)}\n\n"
+        # 4. REFLECT
+        reflection = reflect(result)
+        yield f"event: reflection\ndata: {safe(reflection)}\n\n"
 
-        update_state(evaluation, action, result)
+        # 5. FAILURE TRACKING
+        if "No real progress made" in reflection:
+            failed_steps += 1
+        else:
+            failed_steps = 0
 
+        # 6. MEMORY
         memory.append({
             "step": step + 1,
             "plan": plan,
             "action": action,
             "result": result,
-            "evaluation": evaluation
+            "reflection": reflection
         })
 
         save_memory()
 
-        if should_stop(evaluation):
+        # 7. GOAL CHECK
+        if step >= 2 and is_goal_complete():
             break
 
         time.sleep(0.3)
 
+    # FINAL OUTPUT
     final = refine(generate_final())
 
     yield f"event: final\ndata: {safe(final)}\n\n"
     yield f"event: done\ndata: done\n\n"
+
