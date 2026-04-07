@@ -6,26 +6,32 @@ def run_tool(action):
     inp = action.get("input", "")
 
     # -----------------------
-    # ✍️ WRITE
+    # ✍️ WRITE (STRUCTURED OUTPUT)
     # -----------------------
     if act == "write":
-        return f"Generated content:\n{inp}"
+        return f"""Generated content:
+
+{inp}
+"""
 
     # -----------------------
-    # 🧠 ANALYZE
+    # 🧠 ANALYZE (THINKING TOOL)
     # -----------------------
     elif act == "analyze":
-        return f"Analysis:\n{inp}"
+        return f"""Analysis:
+
+{inp}
+"""
 
     # -----------------------
-    # 🌐 SEARCH (DDGS 🔥)
+    # 🌐 SEARCH (HIGH-SIGNAL VERSION 🔥)
     # -----------------------
     elif act == "search":
         try:
             results_clean = []
 
             with DDGS() as ddgs:
-                results = ddgs.text(inp, max_results=8)
+                results = ddgs.text(inp, max_results=10)
 
                 for r in results:
                     title = r.get("title", "")
@@ -35,29 +41,53 @@ def run_tool(action):
                     if not link:
                         continue
 
-                    # 🔥 filter junk
-                    if any(bad in link.lower() for bad in [
-                        "forum",
-                        "thread",
+                    link_lower = link.lower()
+
+                    # ❌ FILTER LOW-SIGNAL / NOISE
+                    if any(bad in link_lower for bad in [
+                        "facebook",
                         "reddit",
                         "pinterest",
-                        "login"
+                        "forum",
+                        "thread",
+                        "login",
+                        "signup",
+                        "scribd",
+                        "tiktok",
+                        "instagram"
                     ]):
                         continue
 
-                    results_clean.append(
-                        f"{title}\n{link}\n{snippet[:200]}"
-                    )
+                    # ❌ FILTER VERY SHORT / USELESS SNIPPETS
+                    if len(snippet.strip()) < 50:
+                        continue
+
+                    results_clean.append({
+                        "title": title,
+                        "link": link,
+                        "snippet": snippet[:300]
+                    })
 
             if not results_clean:
-                return "No high-quality results found."
+                return "No high-quality search results found."
 
-            return "Search results:\n\n" + "\n\n---\n\n".join(results_clean)
+            # 🔥 STRUCTURED OUTPUT (VERY IMPORTANT)
+            formatted = "Search Results:\n\n"
+
+            for i, r in enumerate(results_clean[:6], 1):
+                formatted += f"""[{i}] {r['title']}
+URL: {r['link']}
+Summary: {r['snippet']}
+
+---
+"""
+
+            return formatted
 
         except Exception as e:
             return f"Search error: {str(e)}"
 
     # -----------------------
-    # ❓ UNKNOWN
+    # ❓ UNKNOWN ACTION
     # -----------------------
     return "Unknown action"

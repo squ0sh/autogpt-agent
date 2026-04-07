@@ -42,20 +42,20 @@ def chat(prompt, max_tokens=1200):
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.5,
+        temperature=0.7,  # 🔥 slightly higher for creativity
         max_tokens=max_tokens,
     )
     return response.choices[0].message.content.strip()
 
 
 # -----------------------
-# 🧠 STEP GENERATION (SYNTHESIS)
+# 🧠 STEP GENERATION
 # -----------------------
 def generate_plan():
     step_number = len(memory) + 1
 
     prompt = f"""
-You are a RESEARCH + SYNTHESIS agent.
+You are a research + synthesis agent.
 
 Goal:
 {GOAL}
@@ -65,32 +65,24 @@ Previous steps:
 
 Current step: {step_number}
 
-CORE OBJECTIVE:
-Each step must:
-1. Extract useful information
-2. Identify patterns or principles
-3. Connect ideas to previous steps
-4. Generate at least ONE new insight
-
 RULES:
 - ONLY generate Step {step_number}
-- DO NOT repeat previous work
-- Avoid shallow research
-- Focus on deeper understanding
+- Push toward deeper understanding, not repetition
+- Prioritize insight over surface research
 
 FORMAT:
-Step {step_number}: <insight-focused title>
+Step {step_number}: <title>
 
-- Action 1: <what to research or analyze>
-- Action 2: <what pattern to extract>
-- Action 3: <what new insight to generate>
+- action 1
+- action 2
+- action 3
 """
 
-    return chat(prompt, max_tokens=700)
+    return chat(prompt, 600)
 
 
 # -----------------------
-# 🎯 ACTION SELECTION (SMARTER)
+# 🎯 ACTION SELECTION
 # -----------------------
 def decide_action(plan):
     prompt = f"""
@@ -99,27 +91,24 @@ Plan:
 
 Choose ONE action:
 
-- search → gather new information
-- analyze → extract patterns or insights
-- write → synthesize or generate ideas
+- search (for new external info)
+- analyze (for thinking / synthesis)
+- write (for generating structured insight)
 
-RULES:
-- Prefer search early
-- Prefer analyze when enough data exists
-- Prefer write when generating insights
-- Avoid repeating same action too often
+Prefer:
+- search if missing info
+- analyze if enough info exists
 
 Return JSON:
 {{
     "action": "...",
-    "input": "clear and specific instruction"
+    "input": "specific instruction"
 }}
 """
-
     try:
-        return json.loads(chat(prompt, max_tokens=300))
+        return json.loads(chat(prompt, 300))
     except:
-        return {"action": "search", "input": f"{GOAL} patterns insights explanation"}
+        return {"action": "analyze", "input": "extract deeper insight"}
 
 
 # -----------------------
@@ -139,42 +128,48 @@ def execute_action(action):
 
 
 # -----------------------
-# 🔍 REFLECTION (SYNTHESIS AWARE)
+# 🔥 SYNTHESIS REFLECTION (UPGRADED)
 # -----------------------
 def reflect(result):
     prompt = f"""
 Goal:
 {GOAL}
 
-Result:
+New Information:
 {result}
 
-Evaluate this step based on SYNTHESIS quality.
+You are NOT summarizing.
 
-CRITERIA:
-1. Did this produce useful information?
-2. Did it identify any patterns?
-3. Did it generate NEW insight?
-4. Did it connect to previous steps?
+You are THINKING.
 
-Be critical.
+Do ALL of the following:
+
+1. Extract key patterns
+2. Identify contradictions or gaps
+3. Generate at least ONE NEW IDEA (not directly stated)
+4. Combine domains into a unified model
+
+Be bold. Avoid generic answers.
 
 FORMAT:
 
 Evaluation:
-- Information Quality: (low/medium/high)
-- Pattern Detection: (yes/no)
-- Insight Quality: (weak/strong)
-- Overall Value: (low/medium/high)
+- Information Quality: low/medium/high
+- Pattern Strength: weak/medium/strong
 
-Key Insight:
-<most important new idea>
+Patterns:
+- ...
+
+Contradictions / Gaps:
+- ...
+
+New Insight (IMPORTANT):
+- ...
 
 Next Direction:
-<what should be explored or connected next>
+- ...
 """
-
-    return chat(prompt, max_tokens=700)
+    return chat(prompt, 900)
 
 
 # -----------------------
@@ -185,20 +180,20 @@ def is_goal_complete():
 Goal:
 {GOAL}
 
-Steps:
+Steps taken:
 {memory}
 
-Has enough meaningful insight and synthesis been achieved?
+Has the goal been FULLY achieved with strong synthesis?
 
 Return ONLY:
 YES or NO
 """
-    result = chat(prompt, max_tokens=20).strip().lower()
+    result = chat(prompt, 10).lower()
     return "yes" in result
 
 
 # -----------------------
-# 🧠 FINAL OUTPUT (SYNTHESIS)
+# 🧠 FINAL OUTPUT (SYNTHESIS MODE)
 # -----------------------
 def generate_final():
     steps_text = ""
@@ -228,13 +223,11 @@ Goal:
 Execution Steps:
 {steps_text}
 
-YOUR TASK:
-- Extract key insights
-- Identify recurring patterns
-- Connect ideas across steps
-- Generate NEW conclusions
-
-DO NOT summarize — synthesize.
+INSTRUCTIONS:
+- DO NOT summarize step-by-step only
+- Extract deeper meaning across all steps
+- Combine ideas into a unified framework
+- Highlight NEW insights discovered
 
 FORMAT:
 
@@ -242,39 +235,35 @@ FORMAT:
 
 ## Goal
 
-## Key Insights
-- ...
+## Core Patterns
 
-## Patterns Discovered
-- ...
+## Key Contradictions
 
-## New Connections
-- ...
+## Breakthrough Insights
 
-## Final Synthesis
-<your best original insight>
+## Unified Model
 
-## Practical Takeaways
-- ...
+## Practical Applications
 """
 
-    return chat(prompt, max_tokens=1800)
+    return chat(prompt, 1800)
 
 
 # -----------------------
-# 🧠 REFINE
+# 🧠 REFINE (NO LOSS)
 # -----------------------
 def refine(final):
     prompt = f"""
-Improve clarity WITHOUT removing content:
+Improve clarity WITHOUT removing anything:
 
 {final}
 
 Rules:
-- DO NOT shorten
-- Keep all insights
+- Keep ALL insights
+- Keep structure
+- Only enhance readability
 """
-    return chat(prompt, max_tokens=1800)
+    return chat(prompt, 1800)
 
 
 # -----------------------
@@ -286,7 +275,7 @@ def stop():
 
 
 # -----------------------
-# ⚡ STREAM SAFE
+# ⚡ SAFE STREAM
 # -----------------------
 def safe(text):
     return str(text).replace("\n", "\\n")
@@ -314,7 +303,7 @@ def run_agent_stream(goal, max_steps=6):
     while step < max_steps:
 
         if STOP_FLAG:
-            yield f"event: stopped\ndata: Stopped by user\n\n"
+            yield f"event: stopped\ndata: Stopped\n\n"
             return
 
         yield f"event: step\ndata: {step+1}\n\n"
