@@ -54,34 +54,21 @@ def chat(prompt, max_tokens=1200):
         temperature=0.5,
         max_tokens=max_tokens,
     )
+
     return response.choices[0].message.content.strip()
 
 
 # -----------------------
-# 🧠 STEP GENERATION (UPGRADED)
+# 🧠 PLAN GENERATION (UPGRADED)
 # -----------------------
 def generate_plan():
     step_number = len(memory) + 1
 
     global failed_steps
 
-    # 🧠 Use only recent memory (prevents overload)
-    recent_context = memory[-3:] if len(memory) > 3 else memory
-
-    # ⚠️ Failure adaptation
     strategy_note = ""
     if failed_steps >= 2:
-        strategy_note = "⚠️ Previous steps failed. ABANDON current approach. Try a completely different strategy or ACTION TYPE."
-
-    # 🔥 Force action after early steps
-    force_action_note = ""
-    if step_number >= 2:
-        force_action_note = """
-MANDATORY:
-- You MUST produce a step that leads to a REAL ACTION (create, simulate, store)
-- DO NOT propose more research unless absolutely necessary
-- The system must start producing tangible outputs
-"""
+        strategy_note = "⚠️ Previous steps failed. CHANGE STRATEGY completely. Use a different ACTION type."
 
     prompt = f"""
 You are an autonomous execution agent.
@@ -89,39 +76,26 @@ You are an autonomous execution agent.
 Goal:
 {GOAL}
 
-Recent context (last steps only):
-{recent_context}
+Previous steps:
+{memory}
 
 {strategy_note}
 
-{force_action_note}
-
-CAPABILITIES AVAILABLE:
-- research → gather information
-- simulate → predict outcomes
-- create → generate real outputs (ideas, assets, structured data)
-- store → save useful results
-- transform → improve/refine outputs
-
-CORE RULES:
-- Every step MUST move closer to a REAL outcome
-- Avoid repeating previous work
+RULES:
+- Each step MUST produce REAL output (data, artifacts, structured results)
+- Avoid repeating research
+- If enough knowledge exists → CREATE or SIMULATE
 - Prefer ACTION over thinking
-- If enough information exists → STOP researching and START creating/simulating
-- Outputs should be usable, not theoretical
-
-THINK:
-What is the MOST LEVERAGE next step that produces a tangible result?
+- Do NOT just describe steps
 
 Step {step_number}:
 
-Format STRICTLY:
+Format:
+Step {step_number}: <title>
 
-Step {step_number}: <clear outcome-focused title>
-
-- Action 1: <specific actionable task>
-- Action 2: <specific actionable task>
-- Action 3: <specific actionable task>
+- action 1
+- action 2
+- action 3
 """
 
     return chat(prompt, 700)
@@ -146,10 +120,10 @@ Options:
 - transform
 
 RULES:
-- If enough info exists → simulate or create
-- If data is missing → research
+- If enough info → create or simulate
+- If missing data → research
 - Avoid repeating same action type
-- Prefer ACTION over thinking
+- Prefer REAL output actions
 
 Return JSON:
 {{ "action": "...", "input": "..." }}
@@ -167,14 +141,59 @@ Return JSON:
 
 
 # -----------------------
-# 🛠 TOOL EXECUTION
+# 🧠 REALITY VALIDATION
 # -----------------------
-def execute_action(action):
-    try:
-        from tools import run_tool
-        return run_tool(action)
-    except Exception as e:
-        return f"Tool error: {str(e)}"
+def is_real_output(result, action_type):
+    # If already structured → good
+    if isinstance(result, dict):
+        return True
+
+    text = str(result).lower()
+
+    fake_patterns = [
+        "here are",
+        "you should",
+        "consider",
+        "steps to",
+        "guide",
+        "strategy",
+        "this approach",
+        "you can",
+    ]
+
+    if any(p in text for p in fake_patterns):
+        return False
+
+    # Enforce strictness for real actions
+    if action_type in ["create", "simulate", "store"]:
+        return isinstance(result, dict)
+
+    return True
+
+
+# -----------------------
+# 🛠 TOOL EXECUTION (WITH RETRY)
+# -----------------------
+def execute_with_validation(action):
+    attempts = 0
+    max_attempts = 3
+
+    while attempts < max_attempts:
+        try:
+            from tools import run_tool
+            result = run_tool(action)
+        except Exception as e:
+            result = f"Tool error: {str(e)}"
+
+        if is_real_output(result, action.get("action")):
+            return result
+
+        attempts += 1
+
+        # Force retry with stronger instruction
+        action["input"] = str(action["input"]) + "\n\nRETRY: Produce REAL structured output. No explanations."
+
+    return "FAILED: Could not produce real output"
 
 
 # -----------------------
@@ -190,9 +209,9 @@ Result:
 
 CRITICAL:
 - ONLY evaluate real output
+- If result == FAILED → must change strategy
 - If no meaningful progress → say EXACTLY: "No real progress made"
-- If action created something useful → recognize it
-- DO NOT invent outcomes
+- DO NOT invent success
 
 FORMAT:
 
@@ -222,7 +241,7 @@ Goal:
 Steps:
 {memory}
 
-Has the goal been TRULY achieved with real outcomes (not just research)?
+Has the goal been TRULY achieved with REAL outputs?
 
 Answer ONLY:
 YES or NO
@@ -249,7 +268,7 @@ Reflection: {s['reflection']}
 ---
 """
 
-    return chat(f"Create a clear, structured final report:\n{text}", 2000)
+    return chat(f"Create a structured final report with REAL outputs:\n{text}", 2000)
 
 
 def refine(final):
@@ -293,8 +312,8 @@ def run_agent_stream(goal, max_steps=6):
         action = decide_action(plan)
         yield f"event: action\ndata: {safe(json.dumps(action))}\n\n"
 
-        # 3. EXECUTE
-        result = execute_action(action)
+        # 3. EXECUTE (WITH REALITY ENFORCEMENT)
+        result = execute_with_validation(action)
         yield f"event: result\ndata: {safe(result)}\n\n"
 
         # 4. REFLECT
@@ -302,7 +321,7 @@ def run_agent_stream(goal, max_steps=6):
         yield f"event: reflection\ndata: {safe(reflection)}\n\n"
 
         # 5. FAILURE TRACKING
-        if "No real progress made" in reflection:
+        if "No real progress made" in reflection or "FAILED" in result:
             failed_steps += 1
         else:
             failed_steps = 0
@@ -329,4 +348,3 @@ def run_agent_stream(goal, max_steps=6):
 
     yield f"event: final\ndata: {safe(final)}\n\n"
     yield f"event: done\ndata: done\n\n"
-
