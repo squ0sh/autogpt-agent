@@ -36,7 +36,7 @@ def save_memory():
 
 
 # -----------------------
-# 🧠 CORE CHAT
+# 🧠 CORE CHAT (FIXED TOKENS)
 # -----------------------
 def chat(prompt, max_tokens=1200):
     response = client.chat.completions.create(
@@ -49,177 +49,201 @@ def chat(prompt, max_tokens=1200):
 
 
 # -----------------------
-# 🧠 THINKER (PLAN)
+# 🧠 STEP GENERATION
 # -----------------------
-def thinker():
+def generate_plan():
     step_number = len(memory) + 1
 
-    return chat(f"""
-You are the THINKER agent.
+    prompt = f"""
+You are an execution agent working step-by-step.
 
 Goal:
 {GOAL}
 
-Memory:
+Previous steps:
 {memory}
 
-Generate the BEST next step.
+Current step: {step_number}
 
-Rules:
-- Be strategic
-- Avoid repetition
-- Move toward useful outcome
+RULES:
+- ONLY generate Step {step_number}
+- DO NOT generate multiple steps
+- Each step must move the goal forward
 
-Format:
-
-Step {step_number}: <title>
+FORMAT:
+Step {step_number}: <short title>
 
 - action 1
 - action 2
 - action 3
-""", 600)
+"""
+
+    return chat(prompt, max_tokens=600)
 
 
 # -----------------------
-# 🧩 ORCHESTRATOR (ACTION DECISION)
+# 🎯 ACTION SELECTION
 # -----------------------
-def orchestrator(plan):
-    try:
-        decision = json.loads(chat(f"""
-You are the ORCHESTRATOR.
-
+def decide_action(plan):
+    prompt = f"""
 Plan:
 {plan}
 
-Choose the BEST action.
-
-Options:
-- search
-- analyze
+Choose ONE action:
 - write
-
-Rules:
-- Prefer SEARCH if information is missing
-- Avoid useless actions
+- analyze
+- search
 
 Return JSON:
-{{ "action": "...", "input": "..." }}
-""", 300))
+{{
+    "action": "...",
+    "input": "short instruction"
+}}
+"""
+
+    try:
+        return json.loads(chat(prompt, max_tokens=300))
     except:
-        decision = {"action": "search", "input": plan}
-
-    return decision
+        return {"action": "write", "input": "execute next step"}
 
 
 # -----------------------
-# ⚙️ ACTOR (TOOLS)
+# 🛠 TOOL EXECUTION
 # -----------------------
-def actor(action):
+def execute_action(action):
     try:
         from tools import run_tool
-        return run_tool(action)
+        result = run_tool(action)
     except Exception as e:
-        return f"Tool error: {str(e)}"
+        result = f"Tool error: {str(e)}"
+
+    if isinstance(result, str) and "Generated content:" in result:
+        result = result.split(":", 1)[-1].strip()
+
+    return result
 
 
 # -----------------------
-# ❤️ FEELER (EVALUATION)
+# 🔍 REFLECTION
 # -----------------------
-def feeler(result):
-    return chat(f"""
-You are the FEELER agent.
-
+def reflect(result):
+    prompt = f"""
 Goal:
 {GOAL}
 
 Result:
 {result}
 
-Evaluate STRICTLY.
+Evaluate progress.
 
-Return:
+RULES:
+- DO NOT say goal complete unless truly done
+- Be realistic
+- Suggest next improvement
 
-Score (0-10):
-<score>
+FORMAT:
+Evaluation:
+<short evaluation>
 
-On Track:
-yes/no
-
-Insights:
-- ...
-- ...
-
-Next Decision:
-- continue
-- change_strategy
-""", 500)
+Next:
+<next step>
+"""
+    return chat(prompt, max_tokens=600)
 
 
 # -----------------------
 # 🧠 GOAL CHECK
 # -----------------------
 def is_goal_complete():
-    if len(memory) < 3:
-        return False
-
-    result = chat(f"""
+    prompt = f"""
 Goal:
 {GOAL}
 
-Steps:
+Steps taken:
 {memory}
 
-Has the goal been sufficiently explored and answered?
+Has the goal been FULLY achieved?
 
+Return ONLY:
 YES or NO
-""", 20).lower()
-
+"""
+    result = chat(prompt, max_tokens=10).strip().lower()
     return "yes" in result
 
 
 # -----------------------
-# 🧠 FINAL OUTPUT
+# 🧠 FINAL OUTPUT (FIXED 🔥)
 # -----------------------
 def generate_final():
-    text = ""
+    steps_text = ""
 
-    for s in memory:
-        text += f"""
-Step {s['step']}
+    for step in memory:
+        steps_text += f"""
+Step {step['step']}
 
 Plan:
-{s['plan']}
-
-Action:
-{s['action']}
+{step['plan']}
 
 Result:
-{s['result']}
+{step['result']}
 
-Evaluation:
-{s['evaluation']}
+Reflection:
+{step['reflection']}
 
 ---
 """
 
-    return chat(f"""
-Create a FINAL REPORT.
+    prompt = f"""
+You are compiling a FINAL COMPLETE EXECUTION REPORT.
 
 Goal:
 {GOAL}
 
-Steps:
-{text}
+Execution Steps:
+{steps_text}
 
-Include:
-- key findings
-- best insights
-- useful links (if any)
-""", 1800)
+INSTRUCTIONS:
+- Reconstruct ALL steps clearly
+- DO NOT skip steps
+- DO NOT overly summarize
+- Keep full detail
+- Expand for clarity if needed
+- Ensure ALL steps are present
+
+FORMAT:
+
+# Final Result
+
+## Goal
+...
+
+## Step 1
+...
+
+## Step 2
+...
+
+(continue through all steps)
+"""
+
+    return chat(prompt, max_tokens=1800)
 
 
+# -----------------------
+# 🧠 SAFE REFINE (NO TRUNCATION)
+# -----------------------
 def refine(final):
-    return chat(f"Improve clarity:\n{final}", 1500)
+    prompt = f"""
+Improve clarity WITHOUT removing content:
+
+{final}
+
+Rules:
+- DO NOT shorten
+- DO NOT remove steps
+- Only improve readability
+"""
+    return chat(prompt, max_tokens=1800)
 
 
 # -----------------------
@@ -238,7 +262,7 @@ def safe(text):
 
 
 # -----------------------
-# 🚀 MAIN LOOP (MULTI-AGENT)
+# 🚀 MAIN LOOP
 # -----------------------
 def run_agent_stream(goal, max_steps=6):
     global GOAL, memory, RUN_ID, STOP_FLAG
@@ -248,6 +272,10 @@ def run_agent_stream(goal, max_steps=6):
     STOP_FLAG = False
     RUN_ID = str(uuid.uuid4())
 
+    os.makedirs("outputs", exist_ok=True)
+
+    MIN_STEPS = 3
+
     yield f"event: start\ndata: {safe(goal)}\n\n"
 
     step = 0
@@ -255,49 +283,53 @@ def run_agent_stream(goal, max_steps=6):
     while step < max_steps:
 
         if STOP_FLAG:
-            yield f"event: stopped\ndata: stopped\n\n"
+            yield f"event: stopped\ndata: Stopped by user\n\n"
             return
 
         yield f"event: step\ndata: {step+1}\n\n"
 
-        # 🧠 THINK
-        plan = thinker()
+        plan = generate_plan()
         yield f"event: plan\ndata: {safe(plan)}\n\n"
 
-        # 🧩 DECIDE
-        action = orchestrator(plan)
+        action = decide_action(plan)
         yield f"event: action\ndata: {safe(json.dumps(action))}\n\n"
 
-        # ⚙️ ACT
-        result = actor(action)
+        result = execute_action(action)
         yield f"event: result\ndata: {safe(result)}\n\n"
 
-        # ❤️ FEEL
-        evaluation = feeler(result)
-        yield f"event: evaluation\ndata: {safe(evaluation)}\n\n"
+        reflection = reflect(result)
+        yield f"event: reflection\ndata: {safe(reflection)}\n\n"
 
         memory.append({
             "step": step + 1,
             "plan": plan,
             "action": action,
             "result": result,
-            "evaluation": evaluation
+            "reflection": reflection
         })
 
         save_memory()
 
-        # 🧠 ORCHESTRATION LOGIC
-        if "change_strategy" in evaluation.lower():
-            step += 1
-            continue
-
-        if len(memory) >= 3 and is_goal_complete():
-            break
+        if len(memory) >= MIN_STEPS:
+            if is_goal_complete():
+                break
 
         step += 1
         time.sleep(0.3)
 
-    final = refine(generate_final())
+    # 🧠 FINAL OUTPUT
+    final = generate_final()
+    improved = refine(final)
 
-    yield f"event: final\ndata: {safe(final)}\n\n"
-    yield f"event: done\ndata: complete\n\n"
+    # ✅ SAVE FILE (NOW FULLY COMPLETE)
+    filename = f"final_{RUN_ID}.txt"
+    filepath = os.path.join("outputs", filename)
+
+    with open(filepath, "w") as f:
+        f.write(improved)
+
+    download_url = f"/download/{filename}"
+
+    yield f"event: final\ndata: {safe(improved)}\n\n"
+    yield f"event: file\ndata: {safe(download_url)}\n\n"
+    yield f"event: done\ndata: Goal completed\n\n"
