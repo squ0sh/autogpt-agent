@@ -36,7 +36,7 @@ def save_memory():
 
 
 # -----------------------
-# 🧠 CORE CHAT (FIXED TOKENS)
+# 🧠 CORE CHAT
 # -----------------------
 def chat(prompt, max_tokens=1200):
     response = client.chat.completions.create(
@@ -49,13 +49,13 @@ def chat(prompt, max_tokens=1200):
 
 
 # -----------------------
-# 🧠 STEP GENERATION
+# 🧠 STEP GENERATION (SYNTHESIS)
 # -----------------------
 def generate_plan():
     step_number = len(memory) + 1
 
     prompt = f"""
-You are an execution agent working step-by-step.
+You are a RESEARCH + SYNTHESIS agent.
 
 Goal:
 {GOAL}
@@ -65,24 +65,32 @@ Previous steps:
 
 Current step: {step_number}
 
+CORE OBJECTIVE:
+Each step must:
+1. Extract useful information
+2. Identify patterns or principles
+3. Connect ideas to previous steps
+4. Generate at least ONE new insight
+
 RULES:
 - ONLY generate Step {step_number}
-- DO NOT generate multiple steps
-- Each step must move the goal forward
+- DO NOT repeat previous work
+- Avoid shallow research
+- Focus on deeper understanding
 
 FORMAT:
-Step {step_number}: <short title>
+Step {step_number}: <insight-focused title>
 
-- action 1
-- action 2
-- action 3
+- Action 1: <what to research or analyze>
+- Action 2: <what pattern to extract>
+- Action 3: <what new insight to generate>
 """
 
-    return chat(prompt, max_tokens=600)
+    return chat(prompt, max_tokens=700)
 
 
 # -----------------------
-# 🎯 ACTION SELECTION
+# 🎯 ACTION SELECTION (SMARTER)
 # -----------------------
 def decide_action(plan):
     prompt = f"""
@@ -90,21 +98,28 @@ Plan:
 {plan}
 
 Choose ONE action:
-- write
-- analyze
-- search
+
+- search → gather new information
+- analyze → extract patterns or insights
+- write → synthesize or generate ideas
+
+RULES:
+- Prefer search early
+- Prefer analyze when enough data exists
+- Prefer write when generating insights
+- Avoid repeating same action too often
 
 Return JSON:
 {{
     "action": "...",
-    "input": "short instruction"
+    "input": "clear and specific instruction"
 }}
 """
 
     try:
         return json.loads(chat(prompt, max_tokens=300))
     except:
-        return {"action": "write", "input": "execute next step"}
+        return {"action": "search", "input": f"{GOAL} patterns insights explanation"}
 
 
 # -----------------------
@@ -124,7 +139,7 @@ def execute_action(action):
 
 
 # -----------------------
-# 🔍 REFLECTION
+# 🔍 REFLECTION (SYNTHESIS AWARE)
 # -----------------------
 def reflect(result):
     prompt = f"""
@@ -134,21 +149,32 @@ Goal:
 Result:
 {result}
 
-Evaluate progress.
+Evaluate this step based on SYNTHESIS quality.
 
-RULES:
-- DO NOT say goal complete unless truly done
-- Be realistic
-- Suggest next improvement
+CRITERIA:
+1. Did this produce useful information?
+2. Did it identify any patterns?
+3. Did it generate NEW insight?
+4. Did it connect to previous steps?
+
+Be critical.
 
 FORMAT:
-Evaluation:
-<short evaluation>
 
-Next:
-<next step>
+Evaluation:
+- Information Quality: (low/medium/high)
+- Pattern Detection: (yes/no)
+- Insight Quality: (weak/strong)
+- Overall Value: (low/medium/high)
+
+Key Insight:
+<most important new idea>
+
+Next Direction:
+<what should be explored or connected next>
 """
-    return chat(prompt, max_tokens=600)
+
+    return chat(prompt, max_tokens=700)
 
 
 # -----------------------
@@ -159,20 +185,20 @@ def is_goal_complete():
 Goal:
 {GOAL}
 
-Steps taken:
+Steps:
 {memory}
 
-Has the goal been FULLY achieved?
+Has enough meaningful insight and synthesis been achieved?
 
 Return ONLY:
 YES or NO
 """
-    result = chat(prompt, max_tokens=10).strip().lower()
+    result = chat(prompt, max_tokens=20).strip().lower()
     return "yes" in result
 
 
 # -----------------------
-# 🧠 FINAL OUTPUT (FIXED 🔥)
+# 🧠 FINAL OUTPUT (SYNTHESIS)
 # -----------------------
 def generate_final():
     steps_text = ""
@@ -194,7 +220,7 @@ Reflection:
 """
 
     prompt = f"""
-You are compiling a FINAL COMPLETE EXECUTION REPORT.
+You are producing a FINAL SYNTHESIS REPORT.
 
 Goal:
 {GOAL}
@@ -202,35 +228,41 @@ Goal:
 Execution Steps:
 {steps_text}
 
-INSTRUCTIONS:
-- Reconstruct ALL steps clearly
-- DO NOT skip steps
-- DO NOT overly summarize
-- Keep full detail
-- Expand for clarity if needed
-- Ensure ALL steps are present
+YOUR TASK:
+- Extract key insights
+- Identify recurring patterns
+- Connect ideas across steps
+- Generate NEW conclusions
+
+DO NOT summarize — synthesize.
 
 FORMAT:
 
 # Final Result
 
 ## Goal
-...
 
-## Step 1
-...
+## Key Insights
+- ...
 
-## Step 2
-...
+## Patterns Discovered
+- ...
 
-(continue through all steps)
+## New Connections
+- ...
+
+## Final Synthesis
+<your best original insight>
+
+## Practical Takeaways
+- ...
 """
 
     return chat(prompt, max_tokens=1800)
 
 
 # -----------------------
-# 🧠 SAFE REFINE (NO TRUNCATION)
+# 🧠 REFINE
 # -----------------------
 def refine(final):
     prompt = f"""
@@ -240,8 +272,7 @@ Improve clarity WITHOUT removing content:
 
 Rules:
 - DO NOT shorten
-- DO NOT remove steps
-- Only improve readability
+- Keep all insights
 """
     return chat(prompt, max_tokens=1800)
 
@@ -317,11 +348,9 @@ def run_agent_stream(goal, max_steps=6):
         step += 1
         time.sleep(0.3)
 
-    # 🧠 FINAL OUTPUT
     final = generate_final()
     improved = refine(final)
 
-    # ✅ SAVE FILE (NOW FULLY COMPLETE)
     filename = f"final_{RUN_ID}.txt"
     filepath = os.path.join("outputs", filename)
 
