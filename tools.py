@@ -11,37 +11,27 @@ if not os.path.exists(DATA_DIR):
 
 
 # -----------------------
-# 🔍 SEARCH TOOL (BRAVE API)
+# 🔍 SEARCH TOOL (GENERIC / LANG / API)
 # -----------------------
 def search_tool(input_data):
     try:
-        api_key = os.getenv("LANGSEARCH_API_KEY")
+        # 🔁 Replace this with LangSearch / Brave / etc.
+        url = f"https://api.duckduckgo.com/?q={input_data}&format=json"
 
-        headers = {
-            "Accept": "application/json",
-            "X-Subscription-Token": api_key
-        }
-
-        url = "https://api.search.brave.com/res/v1/web/search"
-
-        params = {
-            "q": input_data,
-            "count": 5
-        }
-
-        res = requests.get(url, headers=headers, params=params, timeout=10)
+        res = requests.get(url, timeout=10)
         data = res.json()
 
         results = []
-        for r in data.get("web", {}).get("results", []):
-            results.append({
-                "title": r.get("title"),
-                "url": r.get("url")
-            })
 
-        return {
-            "results": results
-        }
+        # fallback parsing
+        for topic in data.get("RelatedTopics", []):
+            if "FirstURL" in topic:
+                results.append({
+                    "title": topic.get("Text"),
+                    "url": topic.get("FirstURL")
+                })
+
+        return {"results": results}
 
     except Exception as e:
         return {"error": f"search failed: {str(e)}"}
@@ -55,9 +45,7 @@ def scrape_tool(input_data):
         if not input_data.startswith("http"):
             return {"error": "Invalid URL"}
 
-        headers = {
-            "User-Agent": "Mozilla/5.0"
-        }
+        headers = {"User-Agent": "Mozilla/5.0"}
 
         res = requests.get(input_data, headers=headers, timeout=10)
 
@@ -74,31 +62,30 @@ def scrape_tool(input_data):
 
 
 # -----------------------
-# 🧠 TRUTH FILTER
+# 🧠 CONTENT VALIDATION
 # -----------------------
 def is_useful_content(text):
     if not text:
         return False
 
-    bad_signals = [
+    bad = [
         "captcha",
-        "verify you are human",
+        "verify",
         "access denied",
         "enable javascript",
         "bot detection"
     ]
 
-    lowered = text.lower()
+    t = text.lower()
 
-    for b in bad_signals:
-        if b in lowered:
-            return False
+    if any(b in t for b in bad):
+        return False
 
     return len(text) > 200
 
 
 # -----------------------
-# 🔄 TRANSFORM TOOL (STRUCTURE FIX)
+# 🔄 TRANSFORM TOOL
 # -----------------------
 def transform_tool(input_data):
     text = str(input_data)
@@ -119,18 +106,12 @@ def transform_tool(input_data):
 
 
 # -----------------------
-# 🔬 RESEARCH TOOL
+# 🔬 OTHER TOOLS
 # -----------------------
 def research_tool(input_data):
-    return {
-        "simulation": True,
-        "query": input_data
-    }
+    return {"simulation": True, "query": input_data}
 
 
-# -----------------------
-# ⚙️ CREATE TOOL
-# -----------------------
 def create_tool(input_data):
     return {
         "simulation": True,
@@ -139,19 +120,10 @@ def create_tool(input_data):
     }
 
 
-# -----------------------
-# 🧪 SIMULATE TOOL
-# -----------------------
 def simulate_tool(input_data):
-    return {
-        "simulation": True,
-        "scenario": input_data
-    }
+    return {"simulation": True, "scenario": input_data}
 
 
-# -----------------------
-# 💾 STORE TOOL
-# -----------------------
 def store_tool(input_data):
     try:
         filename = f"{DATA_DIR}/data_{datetime.utcnow().timestamp()}.json"
@@ -159,10 +131,7 @@ def store_tool(input_data):
         with open(filename, "w") as f:
             json.dump({"data": input_data}, f, indent=2)
 
-        return {
-            "stored": True,
-            "file": filename
-        }
+        return {"stored": True, "file": filename}
 
     except Exception as e:
         return {"error": str(e)}
@@ -177,23 +146,18 @@ def run_tool(action):
 
     if action_type == "search":
         return search_tool(input_data)
-
     elif action_type == "scrape":
         return scrape_tool(input_data)
-
+    elif action_type == "transform":
+        return transform_tool(input_data)
     elif action_type == "research":
         return research_tool(input_data)
-
     elif action_type == "create":
         return create_tool(input_data)
-
     elif action_type == "simulate":
         return simulate_tool(input_data)
-
     elif action_type == "store":
         return store_tool(input_data)
 
-    elif action_type == "transform":
-        return transform_tool(input_data)
-
     return {"error": f"Unknown action: {action_type}"}
+
