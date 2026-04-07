@@ -329,4 +329,3 @@ def run_agent_stream(goal, max_steps=6):
 
     yield f"event: final\ndata: {safe(final)}\n\n"
     yield f"event: done\ndata: done\n\n"
-
