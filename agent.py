@@ -12,6 +12,7 @@ RUN_ID = None
 STOP_FLAG = False
 
 MEMORY_FILE = "memory.json"
+OUTPUT_DIR = "outputs"
 
 
 # -----------------------
@@ -36,7 +37,7 @@ def save_memory():
 
 
 # -----------------------
-# 🧠 CORE CHAT (FIXED TOKENS)
+# 🧠 CORE CHAT
 # -----------------------
 def chat(prompt, max_tokens=1200):
     response = client.chat.completions.create(
@@ -69,42 +70,57 @@ RULES:
 - ONLY generate Step {step_number}
 - DO NOT generate multiple steps
 - Each step must move the goal forward
+- Avoid vague steps
 
 FORMAT:
 Step {step_number}: <short title>
 
-- action 1
-- action 2
-- action 3
+- action 1 (specific)
+- action 2 (specific)
+- action 3 (specific)
 """
 
     return chat(prompt, max_tokens=600)
 
 
 # -----------------------
-# 🎯 ACTION SELECTION
+# 🎯 ACTION SELECTION (UPGRADED)
 # -----------------------
-def decide_action(plan):
+def decide_action(plan, step):
     prompt = f"""
 Plan:
 {plan}
 
-Choose ONE action:
-- write
+Step: {step}
+
+RULES:
+- You MUST produce something tangible
+- Avoid vague actions like "execute next step"
+- If step >= 3 → MUST use "write"
+- Input must contain REAL usable content
+
+Actions:
+- write (create real output file)
 - analyze
 - search
 
 Return JSON:
 {{
     "action": "...",
-    "input": "short instruction"
+    "input": "specific useful content"
 }}
 """
 
     try:
-        return json.loads(chat(prompt, max_tokens=300))
+        decision = json.loads(chat(prompt, max_tokens=300))
     except:
-        return {"action": "write", "input": "execute next step"}
+        decision = {"action": "write", "input": plan}
+
+    # 🔥 HARD ENFORCEMENT
+    if step >= 3:
+        decision["action"] = "write"
+
+    return decision
 
 
 # -----------------------
@@ -116,9 +132,6 @@ def execute_action(action):
         result = run_tool(action)
     except Exception as e:
         result = f"Tool error: {str(e)}"
-
-    if isinstance(result, str) and "Generated content:" in result:
-        result = result.split(":", 1)[-1].strip()
 
     return result
 
@@ -137,9 +150,9 @@ Result:
 Evaluate progress.
 
 RULES:
-- DO NOT say goal complete unless truly done
-- Be realistic
-- Suggest next improvement
+- Be honest
+- DO NOT claim goal complete unless files/products exist
+- Focus on real-world progress
 
 FORMAT:
 Evaluation:
@@ -148,31 +161,24 @@ Evaluation:
 Next:
 <next step>
 """
-    return chat(prompt, max_tokens=600)
+    return chat(prompt, max_tokens=500)
 
 
 # -----------------------
-# 🧠 GOAL CHECK
+# 🧠 GOAL CHECK (REAL)
 # -----------------------
 def is_goal_complete():
-    prompt = f"""
-Goal:
-{GOAL}
+    if not os.path.exists(OUTPUT_DIR):
+        return False
 
-Steps taken:
-{memory}
+    files = os.listdir(OUTPUT_DIR)
 
-Has the goal been FULLY achieved?
-
-Return ONLY:
-YES or NO
-"""
-    result = chat(prompt, max_tokens=10).strip().lower()
-    return "yes" in result
+    # ✅ Require at least 2 real outputs
+    return len(files) >= 2
 
 
 # -----------------------
-# 🧠 FINAL OUTPUT (FIXED 🔥)
+# 🧠 FINAL OUTPUT
 # -----------------------
 def generate_final():
     steps_text = ""
@@ -184,6 +190,9 @@ Step {step['step']}
 Plan:
 {step['plan']}
 
+Action:
+{step['action']}
+
 Result:
 {step['result']}
 
@@ -194,7 +203,7 @@ Reflection:
 """
 
     prompt = f"""
-You are compiling a FINAL COMPLETE EXECUTION REPORT.
+You are compiling a COMPLETE EXECUTION REPORT.
 
 Goal:
 {GOAL}
@@ -203,12 +212,10 @@ Execution Steps:
 {steps_text}
 
 INSTRUCTIONS:
-- Reconstruct ALL steps clearly
-- DO NOT skip steps
-- DO NOT overly summarize
-- Keep full detail
-- Expand for clarity if needed
-- Ensure ALL steps are present
+- Include ALL steps
+- Do NOT skip anything
+- Expand clarity where useful
+- Keep full structure
 
 FORMAT:
 
@@ -230,7 +237,7 @@ FORMAT:
 
 
 # -----------------------
-# 🧠 SAFE REFINE (NO TRUNCATION)
+# 🧠 REFINE
 # -----------------------
 def refine(final):
     prompt = f"""
@@ -272,7 +279,7 @@ def run_agent_stream(goal, max_steps=6):
     STOP_FLAG = False
     RUN_ID = str(uuid.uuid4())
 
-    os.makedirs("outputs", exist_ok=True)
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     MIN_STEPS = 3
 
@@ -288,18 +295,23 @@ def run_agent_stream(goal, max_steps=6):
 
         yield f"event: step\ndata: {step+1}\n\n"
 
+        # PLAN
         plan = generate_plan()
         yield f"event: plan\ndata: {safe(plan)}\n\n"
 
-        action = decide_action(plan)
+        # ACTION
+        action = decide_action(plan, step + 1)
         yield f"event: action\ndata: {safe(json.dumps(action))}\n\n"
 
+        # EXECUTE
         result = execute_action(action)
         yield f"event: result\ndata: {safe(result)}\n\n"
 
+        # REFLECT
         reflection = reflect(result)
         yield f"event: reflection\ndata: {safe(reflection)}\n\n"
 
+        # MEMORY
         memory.append({
             "step": step + 1,
             "plan": plan,
@@ -310,20 +322,19 @@ def run_agent_stream(goal, max_steps=6):
 
         save_memory()
 
-        if len(memory) >= MIN_STEPS:
-            if is_goal_complete():
-                break
+        # STOP CONDITION
+        if len(memory) >= MIN_STEPS and is_goal_complete():
+            break
 
         step += 1
         time.sleep(0.3)
 
-    # 🧠 FINAL OUTPUT
+    # FINAL OUTPUT
     final = generate_final()
     improved = refine(final)
 
-    # ✅ SAVE FILE (NOW FULLY COMPLETE)
     filename = f"final_{RUN_ID}.txt"
-    filepath = os.path.join("outputs", filename)
+    filepath = os.path.join(OUTPUT_DIR, filename)
 
     with open(filepath, "w") as f:
         f.write(improved)
