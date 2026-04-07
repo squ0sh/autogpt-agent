@@ -1,6 +1,6 @@
 import os
 import uuid
-from duckduckgo_search import DDGS
+from DDGS import DDGS
 
 OUTPUT_DIR = "outputs"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
