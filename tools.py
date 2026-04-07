@@ -1,58 +1,88 @@
-import os
-import uuid
 from duckduckgo_search import DDGS
 
-OUTPUT_DIR = "outputs"
-os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-
+# -----------------------
+# 🧩 TOOL ROUTER
+# -----------------------
 def run_tool(action):
     act = action.get("action")
-    inp = action.get("input")
+    inp = action.get("input", "")
 
     # -----------------------
-    # ✍️ WRITE TOOL (REAL 🔥)
+    # ✍️ WRITE (IDEA / OUTPUT GENERATION)
     # -----------------------
     if act == "write":
-        filename = f"{uuid.uuid4()}.txt"
-        filepath = os.path.join(OUTPUT_DIR, filename)
-
-        with open(filepath, "w") as f:
-            f.write(inp)
-
         return {
-            "message": "File created",
-            "file": filename,
-            "path": filepath
+            "type": "generated",
+            "content": inp
         }
 
     # -----------------------
     # 🧠 ANALYZE
     # -----------------------
     elif act == "analyze":
-        return f"Analysis: {inp}"
+        return {
+            "type": "analysis",
+            "content": inp
+        }
 
     # -----------------------
-    # 🌐 SEARCH
+    # 🌐 SEARCH (IMPROVED 🔥)
     # -----------------------
     elif act == "search":
         try:
-            results_text = []
+            results_clean = []
 
             with DDGS() as ddgs:
-                results = ddgs.text(inp, max_results=5)
+                results = ddgs.text(inp, max_results=8)
 
                 for r in results:
-                    results_text.append(
-                        f"{r['title']}\n{r['href']}\n{r['body']}"
-                    )
+                    title = r.get("title", "")
+                    link = r.get("href", "")
+                    snippet = r.get("body", "")
 
-            if not results_text:
-                return "No search results found."
+                    # 🔥 FILTER LOW-QUALITY / IRRELEVANT RESULTS
+                    if not link:
+                        continue
 
-            return "\n\n---\n\n".join(results_text)
+                    if any(bad in link.lower() for bad in [
+                        "forum",
+                        "thread",
+                        "reddit",
+                        "pinterest",
+                        "login"
+                    ]):
+                        continue
+
+                    results_clean.append({
+                        "title": title,
+                        "link": link,
+                        "snippet": snippet[:200]
+                    })
+
+            if not results_clean:
+                return {
+                    "type": "search",
+                    "results": [],
+                    "message": "No high-quality results found"
+                }
+
+            return {
+                "type": "search",
+                "query": inp,
+                "results": results_clean
+            }
 
         except Exception as e:
-            return f"Search error: {str(e)}"
+            return {
+                "type": "error",
+                "message": f"Search error: {str(e)}"
+            }
 
-    return "Unknown action"
+    # -----------------------
+    # ❓ UNKNOWN
+    # -----------------------
+    return {
+        "type": "error",
+        "message": f"Unknown action: {act}"
+    }
