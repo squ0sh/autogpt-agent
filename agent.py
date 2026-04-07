@@ -14,7 +14,7 @@ STOP_FLAG = False
 MEMORY_FILE = "memory.json"
 
 # -----------------------
-# 🧠 AGENT STATE (BRAIN)
+# 🧠 AGENT STATE (NEW BRAIN)
 # -----------------------
 state = {
     "strategy": "explore",
@@ -71,10 +71,11 @@ def chat(prompt, max_tokens=1200):
 
 
 # -----------------------
-# 🧠 PLAN
+# 🧠 PLAN (NOW AWARE)
 # -----------------------
 def generate_plan():
     step_number = len(memory) + 1
+
     recent_context = memory[-3:] if len(memory) > 3 else memory
 
     prompt = f"""
@@ -91,14 +92,14 @@ Agent State:
 
 CRITICAL:
 - ONLY real-world progress counts
-- Reports, summaries, or plans DO NOT count
+- Thinking, planning, or long text DOES NOT count
 - You MUST produce something usable or storable
 
 STRATEGY MODE:
 {state["strategy"]}
 
 RULES:
-- If stuck → change action type
+- If stuck → try a DIFFERENT action type
 - If no real output yet → prioritize STORE
 - Avoid repeating same action
 - Push toward execution
@@ -137,9 +138,9 @@ Options:
 - store
 - transform
 
-MANDATORY:
-- If NO real result yet → MUST choose STORE
-- Avoid repeating: {state["last_action"]}
+IMPORTANT:
+- STORE = highest priority if something useful exists
+- Avoid repeating last action: {state["last_action"]}
 
 Return JSON:
 {{ "action": "...", "input": "..." }}
@@ -170,8 +171,10 @@ def execute_action(action):
 def evaluate(result, action):
     text = str(result).lower()
 
+    # REALNESS
     is_real = action["action"] == "store"
 
+    # QUALITY
     length_score = min(len(text) / 500, 1.0)
     structure_score = 0.8 if isinstance(result, dict) else 0.3
 
@@ -222,11 +225,13 @@ def update_state(evaluation, action, result):
 
 
 # -----------------------
-# 🧠 STOP CONDITION (FIXED)
+# 🧠 STOP CONDITION
 # -----------------------
 def should_stop(evaluation):
-    # ONLY stop if REAL progress happened
     if state["useful_steps"] >= 2 and evaluation["is_real"]:
+        return True
+
+    if state["failed_steps"] >= 4:
         return True
 
     return False
@@ -292,34 +297,20 @@ def run_agent_stream(goal, max_steps=6):
 
         yield f"event: step\ndata: {step+1}\n\n"
 
-        # PLAN
         plan = generate_plan()
         yield f"event: plan\ndata: {safe(plan)}\n\n"
 
-        # DECIDE
         action = decide_action(plan)
-
-        # 🔥 HARD GROUNDING ENFORCEMENT
-        if state["useful_steps"] == 0 and step >= 2:
-            action = {
-                "action": "store",
-                "input": plan
-            }
-
         yield f"event: action\ndata: {safe(json.dumps(action))}\n\n"
 
-        # EXECUTE
         result = execute_action(action)
         yield f"event: result\ndata: {safe(result)}\n\n"
 
-        # EVALUATE
         evaluation = evaluate(result, action)
         yield f"event: evaluation\ndata: {safe(evaluation)}\n\n"
 
-        # UPDATE STATE
         update_state(evaluation, action, result)
 
-        # MEMORY
         memory.append({
             "step": step + 1,
             "plan": plan,
@@ -330,7 +321,6 @@ def run_agent_stream(goal, max_steps=6):
 
         save_memory()
 
-        # STOP CHECK
         if should_stop(evaluation):
             break
 
