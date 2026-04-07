@@ -42,7 +42,7 @@ def chat(prompt, max_tokens=1200):
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.7,  # 🔥 slightly higher for creativity
+        temperature=0.7,
         max_tokens=max_tokens,
     )
     return response.choices[0].message.content.strip()
@@ -55,7 +55,7 @@ def generate_plan():
     step_number = len(memory) + 1
 
     prompt = f"""
-You are a research + synthesis agent.
+You are a high-level research agent.
 
 Goal:
 {GOAL}
@@ -66,9 +66,9 @@ Previous steps:
 Current step: {step_number}
 
 RULES:
-- ONLY generate Step {step_number}
-- Push toward deeper understanding, not repetition
-- Prioritize insight over surface research
+- ONLY generate ONE step
+- Push toward NEW INSIGHT (not repetition)
+- Think cross-domain
 
 FORMAT:
 Step {step_number}: <title>
@@ -82,55 +82,44 @@ Step {step_number}: <title>
 
 
 # -----------------------
-# 🎯 ACTION SELECTION
+# 🎯 ACTION
 # -----------------------
 def decide_action(plan):
     prompt = f"""
 Plan:
 {plan}
 
-Choose ONE action:
-
-- search (for new external info)
-- analyze (for thinking / synthesis)
-- write (for generating structured insight)
-
-Prefer:
-- search if missing info
-- analyze if enough info exists
+Choose ONE:
+- search
+- analyze
+- write
 
 Return JSON:
-{{
-    "action": "...",
-    "input": "specific instruction"
-}}
+{{"action": "...", "input": "..."}}
 """
+
     try:
         return json.loads(chat(prompt, 300))
     except:
-        return {"action": "analyze", "input": "extract deeper insight"}
+        return {"action": "analyze", "input": "continue reasoning"}
 
 
 # -----------------------
-# 🛠 TOOL EXECUTION
+# 🛠 EXECUTE
 # -----------------------
 def execute_action(action):
+    from tools import run_tool
+
     try:
-        from tools import run_tool
-        result = run_tool(action)
+        return run_tool(action)
     except Exception as e:
-        result = f"Tool error: {str(e)}"
-
-    if isinstance(result, str) and "Generated content:" in result:
-        result = result.split(":", 1)[-1].strip()
-
-    return result
+        return f"Tool error: {str(e)}"
 
 
 # -----------------------
-# 🔥 SYNTHESIS REFLECTION (UPGRADED)
+# 🔍 SYNTHESIS (UPGRADED)
 # -----------------------
-def reflect(result):
+def synthesize(result):
     prompt = f"""
 Goal:
 {GOAL}
@@ -138,38 +127,97 @@ Goal:
 New Information:
 {result}
 
-You are NOT summarizing.
+Extract:
 
-You are THINKING.
+1. Key Patterns
+2. Hidden Connections
+3. New Insight (must be original)
 
-Do ALL of the following:
+Be bold. Avoid repetition.
+"""
+    return chat(prompt, 700)
 
-1. Extract key patterns
-2. Identify contradictions or gaps
-3. Generate at least ONE NEW IDEA (not directly stated)
-4. Combine domains into a unified model
 
-Be bold. Avoid generic answers.
+# -----------------------
+# ⚔️ CRITIC (NEW 🔥)
+# -----------------------
+def critique(insight):
+    prompt = f"""
+Critically analyze this:
 
-FORMAT:
+{insight}
 
-Evaluation:
-- Information Quality: low/medium/high
-- Pattern Strength: weak/medium/strong
+Return:
 
-Patterns:
+Weaknesses:
 - ...
 
-Contradictions / Gaps:
+Contradictions:
 - ...
 
-New Insight (IMPORTANT):
-- ...
-
-Next Direction:
+What might be wrong:
 - ...
 """
-    return chat(prompt, 900)
+    return chat(prompt, 600)
+
+
+# -----------------------
+# 🧪 HYPOTHESIS (NEW 🔥)
+# -----------------------
+def generate_hypothesis(insight):
+    prompt = f"""
+From this idea:
+
+{insight}
+
+Generate a TESTABLE hypothesis.
+
+Format:
+Hypothesis:
+Prediction:
+How to test:
+"""
+    return chat(prompt, 600)
+
+
+# -----------------------
+# 📊 SCORING (NEW 🔥)
+# -----------------------
+def score(insight):
+    prompt = f"""
+Score this idea (1-10):
+
+{insight}
+
+Return:
+
+Novelty:
+Usefulness:
+Confidence:
+"""
+    return chat(prompt, 300)
+
+
+# -----------------------
+# 🧠 REFLECTION (UPGRADED)
+# -----------------------
+def reflect(result, insight, critique_text, hypothesis, score_text):
+    return f"""
+RESULT:
+{result}
+
+INSIGHT:
+{insight}
+
+CRITIQUE:
+{critique_text}
+
+HYPOTHESIS:
+{hypothesis}
+
+SCORE:
+{score_text}
+"""
 
 
 # -----------------------
@@ -180,105 +228,57 @@ def is_goal_complete():
 Goal:
 {GOAL}
 
-Steps taken:
+Steps:
 {memory}
 
-Has the goal been FULLY achieved with strong synthesis?
+Complete?
 
-Return ONLY:
 YES or NO
 """
-    result = chat(prompt, 10).lower()
-    return "yes" in result
+    return "yes" in chat(prompt, 10).lower()
 
 
 # -----------------------
-# 🧠 FINAL OUTPUT (SYNTHESIS MODE)
+# 🧠 FINAL OUTPUT
 # -----------------------
 def generate_final():
-    steps_text = ""
+    compiled = ""
 
     for step in memory:
-        steps_text += f"""
+        compiled += f"""
 Step {step['step']}
 
-Plan:
-{step['plan']}
+Insight:
+{step['insight']}
 
-Result:
-{step['result']}
+Critique:
+{step['critique']}
 
-Reflection:
-{step['reflection']}
+Hypothesis:
+{step['hypothesis']}
+
+Score:
+{step['score']}
 
 ---
 """
 
     prompt = f"""
-You are producing a FINAL SYNTHESIS REPORT.
+Create a FINAL SYNTHESIS REPORT.
 
 Goal:
 {GOAL}
 
-Execution Steps:
-{steps_text}
+Data:
+{compiled}
 
-INSTRUCTIONS:
-- DO NOT summarize step-by-step only
-- Extract deeper meaning across all steps
-- Combine ideas into a unified framework
-- Highlight NEW insights discovered
-
-FORMAT:
-
-# Final Result
-
-## Goal
-
-## Core Patterns
-
-## Key Contradictions
-
-## Breakthrough Insights
-
-## Unified Model
-
-## Practical Applications
+Include:
+- Core Patterns
+- Contradictions
+- Breakthrough Ideas
+- Best Hypothesis
 """
-
-    return chat(prompt, 1800)
-
-
-# -----------------------
-# 🧠 REFINE (NO LOSS)
-# -----------------------
-def refine(final):
-    prompt = f"""
-Improve clarity WITHOUT removing anything:
-
-{final}
-
-Rules:
-- Keep ALL insights
-- Keep structure
-- Only enhance readability
-"""
-    return chat(prompt, 1800)
-
-
-# -----------------------
-# 🛑 STOP
-# -----------------------
-def stop():
-    global STOP_FLAG
-    STOP_FLAG = True
-
-
-# -----------------------
-# ⚡ SAFE STREAM
-# -----------------------
-def safe(text):
-    return str(text).replace("\n", "\\n")
+    return chat(prompt, 1500)
 
 
 # -----------------------
@@ -292,62 +292,55 @@ def run_agent_stream(goal, max_steps=6):
     STOP_FLAG = False
     RUN_ID = str(uuid.uuid4())
 
-    os.makedirs("outputs", exist_ok=True)
-
-    MIN_STEPS = 3
-
-    yield f"event: start\ndata: {safe(goal)}\n\n"
+    yield f"event: start\ndata: {goal}\n\n"
 
     step = 0
 
     while step < max_steps:
 
-        if STOP_FLAG:
-            yield f"event: stopped\ndata: Stopped\n\n"
-            return
-
         yield f"event: step\ndata: {step+1}\n\n"
 
         plan = generate_plan()
-        yield f"event: plan\ndata: {safe(plan)}\n\n"
+        yield f"event: plan\ndata: {plan}\n\n"
 
         action = decide_action(plan)
-        yield f"event: action\ndata: {safe(json.dumps(action))}\n\n"
+        yield f"event: action\ndata: {json.dumps(action)}\n\n"
 
         result = execute_action(action)
-        yield f"event: result\ndata: {safe(result)}\n\n"
+        yield f"event: result\ndata: {result}\n\n"
 
-        reflection = reflect(result)
-        yield f"event: reflection\ndata: {safe(reflection)}\n\n"
+        # 🔥 NEW PIPELINE
+        insight = synthesize(result)
+        yield f"event: insight\ndata: {insight}\n\n"
+
+        critique_text = critique(insight)
+        yield f"event: critique\ndata: {critique_text}\n\n"
+
+        hypothesis = generate_hypothesis(insight)
+        yield f"event: hypothesis\ndata: {hypothesis}\n\n"
+
+        score_text = score(insight)
+        yield f"event: score\ndata: {score_text}\n\n"
 
         memory.append({
             "step": step + 1,
             "plan": plan,
             "action": action,
             "result": result,
-            "reflection": reflection
+            "insight": insight,
+            "critique": critique_text,
+            "hypothesis": hypothesis,
+            "score": score_text
         })
 
         save_memory()
 
-        if len(memory) >= MIN_STEPS:
-            if is_goal_complete():
-                break
+        if is_goal_complete():
+            break
 
         step += 1
         time.sleep(0.3)
 
     final = generate_final()
-    improved = refine(final)
-
-    filename = f"final_{RUN_ID}.txt"
-    filepath = os.path.join("outputs", filename)
-
-    with open(filepath, "w") as f:
-        f.write(improved)
-
-    download_url = f"/download/{filename}"
-
-    yield f"event: final\ndata: {safe(improved)}\n\n"
-    yield f"event: file\ndata: {safe(download_url)}\n\n"
-    yield f"event: done\ndata: Goal completed\n\n"
+    yield f"event: final\ndata: {final}\n\n"
+    yield f"event: done\ndata: complete\n\n"
