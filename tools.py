@@ -1,41 +1,58 @@
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 
 
 def run_tool(action):
     act = action.get("action")
-    inp = action.get("input")
+    inp = action.get("input", "")
 
     # -----------------------
-    # ✍️ WRITE TOOL
+    # ✍️ WRITE
     # -----------------------
     if act == "write":
-        return f"Generated content: {inp}"
+        return f"Generated content:\n{inp}"
 
     # -----------------------
-    # 🧠 ANALYZE TOOL
+    # 🧠 ANALYZE
     # -----------------------
     elif act == "analyze":
-        return f"Analysis: {inp}"
+        return f"Analysis:\n{inp}"
 
     # -----------------------
-    # 🌐 REAL SEARCH TOOL 🔥
+    # 🌐 SEARCH (DDGS 🔥)
     # -----------------------
     elif act == "search":
         try:
-            results_text = []
+            results_clean = []
 
             with DDGS() as ddgs:
-                results = ddgs.text(inp, max_results=5)
+                results = ddgs.text(inp, max_results=8)
 
                 for r in results:
-                    results_text.append(
-                        f"{r['title']}\n{r['href']}\n{r['body']}"
+                    title = r.get("title", "")
+                    link = r.get("href", "")
+                    snippet = r.get("body", "")
+
+                    if not link:
+                        continue
+
+                    # 🔥 filter junk
+                    if any(bad in link.lower() for bad in [
+                        "forum",
+                        "thread",
+                        "reddit",
+                        "pinterest",
+                        "login"
+                    ]):
+                        continue
+
+                    results_clean.append(
+                        f"{title}\n{link}\n{snippet[:200]}"
                     )
 
-            if not results_text:
-                return "No search results found."
+            if not results_clean:
+                return "No high-quality results found."
 
-            return "Search results:\n\n" + "\n\n---\n\n".join(results_text)
+            return "Search results:\n\n" + "\n\n---\n\n".join(results_clean)
 
         except Exception as e:
             return f"Search error: {str(e)}"
