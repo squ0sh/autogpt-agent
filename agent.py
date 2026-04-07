@@ -36,6 +36,21 @@ def save_memory():
 
 
 # -----------------------
+# 🛑 STOP FUNCTION (FIXED)
+# -----------------------
+def stop():
+    global STOP_FLAG
+    STOP_FLAG = True
+
+
+# -----------------------
+# ⚡ STREAM SAFE
+# -----------------------
+def safe(text):
+    return str(text).replace("\n", "\\n")
+
+
+# -----------------------
 # 🧠 CORE CHAT
 # -----------------------
 def chat(prompt, max_tokens=1200):
@@ -67,8 +82,8 @@ Current step: {step_number}
 
 RULES:
 - ONLY generate ONE step
-- Push toward NEW INSIGHT (not repetition)
-- Think cross-domain
+- Push toward NEW INSIGHT
+- Avoid repetition
 
 FORMAT:
 Step {step_number}: <title>
@@ -82,14 +97,14 @@ Step {step_number}: <title>
 
 
 # -----------------------
-# 🎯 ACTION
+# 🎯 ACTION SELECTION
 # -----------------------
 def decide_action(plan):
     prompt = f"""
 Plan:
 {plan}
 
-Choose ONE:
+Choose ONE action:
 - search
 - analyze
 - write
@@ -105,19 +120,20 @@ Return JSON:
 
 
 # -----------------------
-# 🛠 EXECUTE
+# 🛠 TOOL EXECUTION
 # -----------------------
 def execute_action(action):
-    from tools import run_tool
-
     try:
-        return run_tool(action)
+        from tools import run_tool
+        result = run_tool(action)
     except Exception as e:
-        return f"Tool error: {str(e)}"
+        result = f"Tool error: {str(e)}"
+
+    return result
 
 
 # -----------------------
-# 🔍 SYNTHESIS (UPGRADED)
+# 🔍 SYNTHESIS
 # -----------------------
 def synthesize(result):
     prompt = f"""
@@ -132,14 +148,12 @@ Extract:
 1. Key Patterns
 2. Hidden Connections
 3. New Insight (must be original)
-
-Be bold. Avoid repetition.
 """
     return chat(prompt, 700)
 
 
 # -----------------------
-# ⚔️ CRITIC (NEW 🔥)
+# ⚔️ CRITIQUE
 # -----------------------
 def critique(insight):
     prompt = f"""
@@ -162,7 +176,7 @@ What might be wrong:
 
 
 # -----------------------
-# 🧪 HYPOTHESIS (NEW 🔥)
+# 🧪 HYPOTHESIS
 # -----------------------
 def generate_hypothesis(insight):
     prompt = f"""
@@ -181,7 +195,7 @@ How to test:
 
 
 # -----------------------
-# 📊 SCORING (NEW 🔥)
+# 📊 SCORING
 # -----------------------
 def score(insight):
     prompt = f"""
@@ -199,28 +213,6 @@ Confidence:
 
 
 # -----------------------
-# 🧠 REFLECTION (UPGRADED)
-# -----------------------
-def reflect(result, insight, critique_text, hypothesis, score_text):
-    return f"""
-RESULT:
-{result}
-
-INSIGHT:
-{insight}
-
-CRITIQUE:
-{critique_text}
-
-HYPOTHESIS:
-{hypothesis}
-
-SCORE:
-{score_text}
-"""
-
-
-# -----------------------
 # 🧠 GOAL CHECK
 # -----------------------
 def is_goal_complete():
@@ -231,11 +223,13 @@ Goal:
 Steps:
 {memory}
 
-Complete?
+Has the goal been FULLY achieved?
 
+Return ONLY:
 YES or NO
 """
-    return "yes" in chat(prompt, 10).lower()
+    result = chat(prompt, 10).lower()
+    return "yes" in result
 
 
 # -----------------------
@@ -292,35 +286,40 @@ def run_agent_stream(goal, max_steps=6):
     STOP_FLAG = False
     RUN_ID = str(uuid.uuid4())
 
-    yield f"event: start\ndata: {goal}\n\n"
+    yield f"event: start\ndata: {safe(goal)}\n\n"
 
     step = 0
 
     while step < max_steps:
 
+        # 🛑 STOP CHECK (FIXED)
+        if STOP_FLAG:
+            yield f"event: stopped\ndata: stopped by user\n\n"
+            return
+
         yield f"event: step\ndata: {step+1}\n\n"
 
         plan = generate_plan()
-        yield f"event: plan\ndata: {plan}\n\n"
+        yield f"event: plan\ndata: {safe(plan)}\n\n"
 
         action = decide_action(plan)
-        yield f"event: action\ndata: {json.dumps(action)}\n\n"
+        yield f"event: action\ndata: {safe(json.dumps(action))}\n\n"
 
         result = execute_action(action)
-        yield f"event: result\ndata: {result}\n\n"
+        yield f"event: result\ndata: {safe(result)}\n\n"
 
-        # 🔥 NEW PIPELINE
+        # 🔥 BREAKTHROUGH PIPELINE
         insight = synthesize(result)
-        yield f"event: insight\ndata: {insight}\n\n"
+        yield f"event: insight\ndata: {safe(insight)}\n\n"
 
         critique_text = critique(insight)
-        yield f"event: critique\ndata: {critique_text}\n\n"
+        yield f"event: critique\ndata: {safe(critique_text)}\n\n"
 
         hypothesis = generate_hypothesis(insight)
-        yield f"event: hypothesis\ndata: {hypothesis}\n\n"
+        yield f"event: hypothesis\ndata: {safe(hypothesis)}\n\n"
 
         score_text = score(insight)
-        yield f"event: score\ndata: {score_text}\n\n"
+        yield f"event: score\ndata: {safe(score_text)}\n\n"
 
         memory.append({
             "step": step + 1,
@@ -342,5 +341,6 @@ def run_agent_stream(goal, max_steps=6):
         time.sleep(0.3)
 
     final = generate_final()
-    yield f"event: final\ndata: {final}\n\n"
+
+    yield f"event: final\ndata: {safe(final)}\n\n"
     yield f"event: done\ndata: complete\n\n"
