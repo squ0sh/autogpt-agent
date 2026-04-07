@@ -66,27 +66,19 @@ def generate_plan():
     strategy_note = ""
     if failed_steps >= 2:
         strategy_note = """
-⚠️ MUST CHANGE STRATEGY:
-- Use search → scrape pipeline
-- Produce real outputs only
+⚠️ CHANGE STRATEGY:
+- Use search → scrape → transform
+- Avoid repeating failed actions
 """
 
     prompt = f"""
-You are an autonomous execution agent.
-
 Goal:
 {GOAL}
 
-Previous steps:
+Previous:
 {memory}
 
 {strategy_note}
-
-RULES:
-- Prefer real-world actions
-- Use search if no URL exists
-- Then scrape
-- Then transform/store
 
 Step {step_number}:
 
@@ -109,20 +101,14 @@ def decide_action(plan):
 Plan:
 {plan}
 
-Choose ONE action:
+Pick ONE:
 
-Options:
 - search
 - scrape
 - create
 - store
 - simulate
 - transform
-
-RULES:
-- If no URL → search
-- If URL → scrape
-- Prefer real actions
 
 Return JSON:
 {{ "action": "...", "input": "..." }}
@@ -133,30 +119,42 @@ Return JSON:
     except:
         decision = {"action": "search", "input": plan}
 
-    input_text = str(decision.get("input", ""))
-
-    # 🔥 AUTO FIX
-    if decision["action"] == "scrape" and not input_text.startswith("http"):
+    if decision["action"] == "scrape" and not str(decision["input"]).startswith("http"):
         decision["action"] = "search"
 
     return decision
 
 
 # -----------------------
-# 🧠 EXECUTION (CHAINING)
+# 🧠 EXECUTION ENGINE (UPGRADED)
 # -----------------------
 def execute_with_validation(action):
-    from tools import run_tool
+    from tools import run_tool, transform_tool, is_useful_content
 
     result = run_tool(action)
 
-    # 🔗 AUTO CHAIN: search → scrape
-    if action["action"] == "search" and "source" in result:
-        scrape_action = {
-            "action": "scrape",
-            "input": result["source"]
-        }
-        result = run_tool(scrape_action)
+    # 🔗 SEARCH → SCRAPE
+    if action["action"] == "search" and "results" in result:
+        if result["results"]:
+            url = result["results"][0]["url"]
+
+            scrape_result = run_tool({
+                "action": "scrape",
+                "input": url
+            })
+
+            # 🧠 FILTER BAD CONTENT
+            if "content" in scrape_result and is_useful_content(scrape_result["content"]):
+                return transform_tool(scrape_result["content"])
+            else:
+                return {"error": "No useful content found"}
+
+    # 🔗 SCRAPE → TRANSFORM
+    if action["action"] == "scrape" and "content" in result:
+        if is_useful_content(result["content"]):
+            return transform_tool(result["content"])
+        else:
+            return {"error": "Blocked or low-quality page"}
 
     return result
 
@@ -172,11 +170,7 @@ Goal:
 Result:
 {result}
 
-CRITICAL:
-- If no real data → "No real progress made"
-- If error → change strategy
-
-FORMAT:
+If useless → "No real progress made"
 
 Evaluation:
 ...
@@ -184,16 +178,15 @@ Evaluation:
 Insights:
 - ...
 - ...
-- ...
 
 Next:
 ...
 """
-    return chat(prompt, 700)
+    return chat(prompt, 600)
 
 
 # -----------------------
-# 🧠 GOAL CHECK (STRICT)
+# 🧠 GOAL CHECK
 # -----------------------
 def is_goal_complete():
     result = chat(
@@ -204,9 +197,8 @@ Goal:
 Steps:
 {memory}
 
-Has REAL, VERIFIABLE progress been made?
+REAL progress made?
 
-Answer ONLY:
 YES or NO
 """,
         30
@@ -229,11 +221,11 @@ Result: {s['result']}
 ---
 """
 
-    return chat(f"Create FINAL report using REAL data only:\n{text}", 2000)
+    return chat(f"Create FINAL report from REAL data:\n{text}", 1500)
 
 
 def refine(final):
-    return chat(f"Improve clarity:\n{final}", 1500)
+    return chat(f"Improve clarity:\n{final}", 1000)
 
 
 # -----------------------
@@ -277,7 +269,6 @@ def run_agent_stream(goal, max_steps=6):
         reflection = reflect(result)
         yield f"event: reflection\ndata: {safe(reflection)}\n\n"
 
-        # failure tracking
         if "error" in str(result).lower() or "No real progress made" in reflection:
             failed_steps += 1
         else:

@@ -11,16 +11,40 @@ if not os.path.exists(DATA_DIR):
 
 
 # -----------------------
-# 🔍 SEARCH TOOL
+# 🔍 SEARCH TOOL (BRAVE API)
 # -----------------------
 def search_tool(input_data):
-    query = input_data.replace(" ", "+")
-    url = f"https://duckduckgo.com/html/?q={query}"
+    try:
+        api_key = os.getenv("LANGSEARCH_API_KEY")
 
-    return {
-        "source": url,
-        "query": input_data
-    }
+        headers = {
+            "Accept": "application/json",
+            "X-Subscription-Token": api_key
+        }
+
+        url = "https://api.search.brave.com/res/v1/web/search"
+
+        params = {
+            "q": input_data,
+            "count": 5
+        }
+
+        res = requests.get(url, headers=headers, params=params, timeout=10)
+        data = res.json()
+
+        results = []
+        for r in data.get("web", {}).get("results", []):
+            results.append({
+                "title": r.get("title"),
+                "url": r.get("url")
+            })
+
+        return {
+            "results": results
+        }
+
+    except Exception as e:
+        return {"error": f"search failed: {str(e)}"}
 
 
 # -----------------------
@@ -31,18 +55,67 @@ def scrape_tool(input_data):
         if not input_data.startswith("http"):
             return {"error": "Invalid URL"}
 
-        res = requests.get(input_data, timeout=8)
-        soup = BeautifulSoup(res.text, "html.parser")
+        headers = {
+            "User-Agent": "Mozilla/5.0"
+        }
 
+        res = requests.get(input_data, headers=headers, timeout=10)
+
+        soup = BeautifulSoup(res.text, "html.parser")
         text = soup.get_text(separator=" ", strip=True)
 
         return {
             "source": input_data,
-            "content": text[:3000]
+            "content": text[:4000]
         }
 
     except Exception as e:
         return {"error": f"scrape failed: {str(e)}"}
+
+
+# -----------------------
+# 🧠 TRUTH FILTER
+# -----------------------
+def is_useful_content(text):
+    if not text:
+        return False
+
+    bad_signals = [
+        "captcha",
+        "verify you are human",
+        "access denied",
+        "enable javascript",
+        "bot detection"
+    ]
+
+    lowered = text.lower()
+
+    for b in bad_signals:
+        if b in lowered:
+            return False
+
+    return len(text) > 200
+
+
+# -----------------------
+# 🔄 TRANSFORM TOOL (STRUCTURE FIX)
+# -----------------------
+def transform_tool(input_data):
+    text = str(input_data)
+
+    sentences = text.split(". ")
+
+    bullets = []
+    for s in sentences:
+        s = s.strip()
+        if len(s) > 40:
+            bullets.append(s)
+        if len(bullets) >= 8:
+            break
+
+    return {
+        "summary": bullets
+    }
 
 
 # -----------------------
@@ -93,15 +166,6 @@ def store_tool(input_data):
 
     except Exception as e:
         return {"error": str(e)}
-
-
-# -----------------------
-# 🔄 TRANSFORM TOOL
-# -----------------------
-def transform_tool(input_data):
-    return {
-        "transformed": input_data[:500]
-    }
 
 
 # -----------------------
