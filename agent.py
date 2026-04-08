@@ -10,10 +10,16 @@ GOAL = ""
 memory = []
 RUN_ID = None
 STOP_FLAG = False
-BEST_IDEA = None
 
 MEMORY_FILE = "memory.json"
-MIN_STEPS = 5
+
+# 🌌 Layered truth system
+BEST_IDEAS = {
+    "empirical": None,
+    "experiential": None,
+    "structural": None,
+    "speculative": None
+}
 
 
 # -----------------------
@@ -64,7 +70,7 @@ def record_failure(text):
 
 
 # -----------------------
-# 💾 MEMORY SAVE
+# 💾 SAVE MEMORY
 # -----------------------
 def save_memory():
     data = {}
@@ -79,13 +85,15 @@ def save_memory():
     if "evolution" not in data:
         data["evolution"] = {"survivors": [], "failures": []}
 
-    if BEST_IDEA:
-        data["evolution"]["survivors"].append(BEST_IDEA)
+    # Save all layer winners
+    for idea in BEST_IDEAS.values():
+        if idea:
+            data["evolution"]["survivors"].append(idea)
 
     data[RUN_ID] = {
         "goal": GOAL,
         "steps": memory,
-        "best_idea": BEST_IDEA
+        "best_ideas": BEST_IDEAS
     }
 
     with open(MEMORY_FILE, "w") as f:
@@ -113,18 +121,15 @@ def chat(prompt, max_tokens=1200):
 
 
 # -----------------------
-# 🧠 PLAN (WITH EVOLUTION)
+# 🧠 PLAN
 # -----------------------
 def generate_plan():
-    step_number = len(memory) + 1
     survivors, failures = load_evolution()
+    step_number = len(memory) + 1
 
     return chat(f"""
 Goal:
 {GOAL}
-
-Best Idea So Far:
-{BEST_IDEA}
 
 Past Winners:
 {survivors[-3:]}
@@ -185,7 +190,7 @@ Goal:
 Result:
 {result}
 
-Extract ONE deep insight aligned to the goal.
+Extract ONE deep insight.
 """, 600)
 
 
@@ -200,54 +205,33 @@ Goal:
 Base Idea:
 {insight}
 
-Generate 3 IDEAS that are MUTUALLY EXCLUSIVE.
-
-- If one is true → others must fail
-- Each challenges different assumptions
+Generate 3 mutually exclusive ideas.
 """, 700)
 
 
 # -----------------------
-# 💀 DESTROY EACH IDEA
+# 💀 DESTROY
 # -----------------------
 def destroy_each(ideas):
     return chat(f"""
-Goal:
-{GOAL}
+Destroy each idea:
 
-Ideas:
 {ideas}
 
-Destroy EACH idea:
-
-- fatal flaw
-- how it fails
-- how to falsify
-
-Be aggressive.
+Find fatal flaws.
 """, 700)
 
 
 # -----------------------
-# 🪓 ELIMINATE
+# 🪓 ELIMINATE (TRACK FAILURE ONLY)
 # -----------------------
 def eliminate(ideas):
     return chat(f"""
-Goal:
-{GOAL}
+From these ideas:
 
-Ideas:
 {ideas}
 
-Eliminate ONE idea permanently.
-
-Rules:
-- weakest must die
-- cannot return later
-
-Return:
-Eliminated:
-Reason:
+Pick the weakest and explain why.
 """, 400)
 
 
@@ -256,18 +240,13 @@ Reason:
 # -----------------------
 def select_survivor(ideas, critique):
     return chat(f"""
-Goal:
-{GOAL}
-
 Ideas:
 {ideas}
 
 Critique:
 {critique}
 
-ONLY ONE survives.
-
-Return ONLY that idea.
+Select strongest idea.
 """, 400)
 
 
@@ -276,7 +255,7 @@ Return ONLY that idea.
 # -----------------------
 def refine(idea, critique):
     return chat(f"""
-Improve ONLY this idea:
+Improve this idea:
 
 {idea}
 
@@ -297,62 +276,39 @@ Create a stronger variation:
 
 
 # -----------------------
-# 🧬 NOVELTY BOOST
+# 🧬 NOVELTY
 # -----------------------
 def novelty_boost(idea):
     return chat(f"""
-Goal:
-{GOAL}
+Make this idea more novel:
 
-Idea:
 {idea}
 
-Increase novelty:
-
-- challenge assumptions
-- introduce unconventional thinking
-- keep it meaningful
-
-Return improved idea.
+Keep it meaningful.
 """, 500)
 
 
 # -----------------------
-# 🧪 HYPOTHESIS
+# 🧠 CLASSIFY
 # -----------------------
-def hypothesis(idea):
+def classify_idea(idea):
     return chat(f"""
-Turn into testable hypothesis:
+Classify into ONE:
 
-{idea}
-
-Include:
-- prediction
-- method
-""", 500)
-
-
-# -----------------------
-# 📊 SCORE
-# -----------------------
-def score(idea):
-    return chat(f"""
-Score (1-10):
-
-Novelty:
-Usefulness:
-Plausibility:
-
-IMPORTANT:
-- Low novelty = weak idea
+- empirical
+- experiential
+- structural
+- speculative
 
 Idea:
 {idea}
-""", 200)
+
+Return only category.
+""", 50).lower().strip()
 
 
 # -----------------------
-# 🏆 SELECT BEST
+# 🏆 SELECT BEST (PER LAYER)
 # -----------------------
 def select_best(current, new):
     return chat(f"""
@@ -362,9 +318,8 @@ Current:
 New:
 {new}
 
-Only ONE survives.
-
-Choose the stronger idea.
+Choose stronger.
+Return only winner.
 """, 300)
 
 
@@ -379,14 +334,18 @@ Goal:
 Steps:
 {memory}
 
-Best Idea:
-{BEST_IDEA}
+Layered Ideas:
+{BEST_IDEAS}
 
-Provide:
-- competing ideas
-- eliminations
-- evolution path
-- final dominant theory
+Create a layered reality model.
+
+Include:
+- each layer’s best idea
+- interactions between layers
+- tensions
+- paradoxes
+
+DO NOT unify into one answer.
 """, 1500)
 
 
@@ -394,13 +353,19 @@ Provide:
 # 🚀 MAIN LOOP
 # -----------------------
 def run_agent_stream(goal, max_steps=7):
-    global GOAL, memory, RUN_ID, STOP_FLAG, BEST_IDEA
+    global GOAL, memory, RUN_ID, STOP_FLAG, BEST_IDEAS
 
     GOAL = goal
     memory = []
     STOP_FLAG = False
     RUN_ID = str(uuid.uuid4())
-    BEST_IDEA = None
+
+    BEST_IDEAS = {
+        "empirical": None,
+        "experiential": None,
+        "structural": None,
+        "speculative": None
+    }
 
     yield f"event: start\ndata: {safe(goal)}\n\n"
 
@@ -444,34 +409,30 @@ def run_agent_stream(goal, max_steps=7):
         mutation = mutate(refined)
         yield f"event: mutation\ndata: {safe(mutation)}\n\n"
 
-        # 🧬 NOVELTY INJECTION
         novel = novelty_boost(mutation)
         yield f"event: novelty\ndata: {safe(novel)}\n\n"
 
-        hypo = hypothesis(novel)
-        yield f"event: hypothesis\ndata: {safe(hypo)}\n\n"
+        category = classify_idea(novel)
+        yield f"event: category\ndata: {safe(category)}\n\n"
 
-        scoring = score(novel)
-        yield f"event: score\ndata: {safe(scoring)}\n\n"
+        current = BEST_IDEAS.get(category)
 
-        if BEST_IDEA is None:
-            BEST_IDEA = novel
+        if current is None:
+            BEST_IDEAS[category] = novel
         else:
-            BEST_IDEA = select_best(BEST_IDEA, novel)
+            BEST_IDEAS[category] = select_best(current, novel)
 
-        yield f"event: best\ndata: {safe(BEST_IDEA)}\n\n"
+        yield f"event: best_{category}\ndata: {safe(BEST_IDEAS[category])}\n\n"
 
         memory.append({
             "step": step + 1,
             "plan": plan,
             "insight": insight,
             "ideas": ideas,
-            "eliminated": eliminated,
             "survivor": survivor,
-            "refined": refined,
             "novel": novel,
-            "score": scoring,
-            "best": BEST_IDEA
+            "category": category,
+            "layer_state": BEST_IDEAS
         })
 
         save_memory()
