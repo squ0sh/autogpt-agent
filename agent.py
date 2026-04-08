@@ -31,7 +31,7 @@ def stop():
 
 
 # -----------------------
-# 🧬 LOAD EVOLUTION
+# 💾 LOAD EVOLUTION
 # -----------------------
 def load_evolution():
     if not os.path.exists(MEMORY_FILE):
@@ -85,7 +85,6 @@ def save_memory():
     if "evolution" not in data:
         data["evolution"] = {"survivors": [], "failures": []}
 
-    # Save all layer winners
     for idea in BEST_IDEAS.values():
         if idea:
             data["evolution"]["survivors"].append(idea)
@@ -139,10 +138,7 @@ Past Failures:
 
 Step: {step_number}
 
-Generate ONE step that:
-- builds on success
-- avoids failure
-- pushes deeper insight
+Generate ONE step that pushes deeper understanding.
 """, 500)
 
 
@@ -210,7 +206,7 @@ Generate 3 mutually exclusive ideas.
 
 
 # -----------------------
-# 💀 DESTROY
+# 💀 DESTRUCTION
 # -----------------------
 def destroy_each(ideas):
     return chat(f"""
@@ -223,7 +219,7 @@ Find fatal flaws.
 
 
 # -----------------------
-# 🪓 ELIMINATE (TRACK FAILURE ONLY)
+# 🪓 ELIMINATION
 # -----------------------
 def eliminate(ideas):
     return chat(f"""
@@ -276,15 +272,13 @@ Create a stronger variation:
 
 
 # -----------------------
-# 🧬 NOVELTY
+# 🧬 NOVELTY BOOST
 # -----------------------
 def novelty_boost(idea):
     return chat(f"""
-Make this idea more novel:
+Make this idea more novel and less conventional:
 
 {idea}
-
-Keep it meaningful.
 """, 500)
 
 
@@ -308,7 +302,7 @@ Return only category.
 
 
 # -----------------------
-# 🏆 SELECT BEST (PER LAYER)
+# 🏆 SELECT BEST PER LAYER
 # -----------------------
 def select_best(current, new):
     return chat(f"""
@@ -321,6 +315,25 @@ New:
 Choose stronger.
 Return only winner.
 """, 300)
+
+
+# -----------------------
+# ⚔️ CROSS-LAYER WARFARE
+# -----------------------
+def cross_layer_attack(layers):
+    return chat(f"""
+We have multiple layers of truth:
+
+{layers}
+
+Do the following:
+
+1. Each layer attacks another layer
+2. Identify what it gets WRONG
+3. Identify what it cannot explain
+
+Be critical and precise.
+""", 800)
 
 
 # -----------------------
@@ -337,11 +350,11 @@ Steps:
 Layered Ideas:
 {BEST_IDEAS}
 
-Create a layered reality model.
+Create a final layered reality model.
 
 Include:
 - each layer’s best idea
-- interactions between layers
+- cross-layer conflicts
 - tensions
 - paradoxes
 
@@ -424,6 +437,10 @@ def run_agent_stream(goal, max_steps=7):
 
         yield f"event: best_{category}\ndata: {safe(BEST_IDEAS[category])}\n\n"
 
+        # ⚔️ CROSS-LAYER WARFARE
+        attack = cross_layer_attack(BEST_IDEAS)
+        yield f"event: cross_attack\ndata: {safe(attack)}\n\n"
+
         memory.append({
             "step": step + 1,
             "plan": plan,
@@ -432,7 +449,8 @@ def run_agent_stream(goal, max_steps=7):
             "survivor": survivor,
             "novel": novel,
             "category": category,
-            "layer_state": BEST_IDEAS
+            "layer_state": BEST_IDEAS,
+            "cross_attack": attack
         })
 
         save_memory()
