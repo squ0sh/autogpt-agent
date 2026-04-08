@@ -12,11 +12,13 @@ RUN_ID = None
 STOP_FLAG = False
 
 MEMORY_FILE = "memory.json"
-MIN_STEPS = 4  # 🔥 FORCE MULTI-STEP THINKING
+BEST_IDEA = None
+
+MIN_STEPS = 5
 
 
 # -----------------------
-# 🛑 STOP (FIXED)
+# 🛑 STOP
 # -----------------------
 def stop():
     global STOP_FLAG
@@ -24,7 +26,7 @@ def stop():
 
 
 # -----------------------
-# 💾 MEMORY
+# 💾 MEMORY SAVE
 # -----------------------
 def save_memory():
     data = {}
@@ -37,7 +39,8 @@ def save_memory():
 
     data[RUN_ID] = {
         "goal": GOAL,
-        "steps": memory
+        "steps": memory,
+        "best_idea": BEST_IDEA
     }
 
     with open(MEMORY_FILE, "w") as f:
@@ -58,7 +61,7 @@ def chat(prompt, max_tokens=1200):
     res = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.7,
+        temperature=0.85,
         max_tokens=max_tokens,
     )
     return res.choices[0].message.content.strip()
@@ -74,10 +77,12 @@ def generate_plan():
 Goal:
 {GOAL}
 
-Current Step: {step_number}
+Best Idea So Far:
+{BEST_IDEA}
 
-Generate ONE step that advances understanding.
-Stay aligned to the goal.
+Step: {step_number}
+
+Generate ONE step that pushes deeper understanding.
 Avoid repetition.
 """, 500)
 
@@ -116,7 +121,7 @@ def execute_action(action):
 
 
 # -----------------------
-# 🔍 SYNTHESIS (FIXED)
+# 🔍 SYNTHESIS
 # -----------------------
 def synthesize(result):
     return chat(f"""
@@ -126,32 +131,38 @@ Goal:
 Result:
 {result}
 
-Extract deep patterns.
-Generate ONE strong insight.
-
+Extract deep patterns and generate ONE insight.
 Stay strictly aligned to the goal.
 """, 600)
 
 
 # -----------------------
-# ⚔️ COMPETING MODELS
+# ⚔️ DIVERGENCE ENGINE 🔥
 # -----------------------
-def competing_models(insight):
+def divergent_ideas(insight):
     return chat(f"""
 Goal:
 {GOAL}
 
-Insight:
+Base Idea:
 {insight}
 
-Create TWO competing explanations.
+Generate 3 COMPLETELY DIFFERENT interpretations.
 
-Then evaluate which is stronger and why.
-""", 600)
+Rules:
+- Different paradigms
+- Challenge each other
+- Not minor variations
+
+Format:
+Idea 1:
+Idea 2:
+Idea 3:
+""", 700)
 
 
 # -----------------------
-# 💀 DESTRUCTION
+# 💀 DESTRUCTION (UPGRADED)
 # -----------------------
 def destroy(insight):
     return chat(f"""
@@ -161,14 +172,18 @@ Goal:
 Idea:
 {insight}
 
-Critically attack this idea.
+Attack this idea HARD.
 
-Why might it be wrong?
-""", 400)
+- What would disprove it?
+- Where does it break?
+- What assumptions are weak?
+
+Be ruthless.
+""", 500)
 
 
 # -----------------------
-# 🔁 REFINE (FIXED)
+# 🔁 REFINE
 # -----------------------
 def refine(insight, critique):
     return chat(f"""
@@ -182,7 +197,6 @@ Critique:
 {critique}
 
 Refine into a stronger version.
-Stay aligned to the goal.
 """, 500)
 
 
@@ -197,8 +211,7 @@ Goal:
 Idea:
 {insight}
 
-Create a surprising variation of this idea.
-Stay relevant to the goal.
+Create a surprising alternative interpretation.
 """, 400)
 
 
@@ -222,22 +235,42 @@ Include:
 
 
 # -----------------------
-# 📊 SCORE
+# 📊 SCORING
 # -----------------------
 def score(insight):
     return chat(f"""
 Goal:
 {GOAL}
 
-Score this idea (1-10):
+Score (1-10):
 
-- Novelty
-- Usefulness
-- Confidence
+Novelty:
+Usefulness:
+Plausibility:
 
 Idea:
 {insight}
 """, 200)
+
+
+# -----------------------
+# 🏆 SELECT BEST IDEA
+# -----------------------
+def select_best(current, new):
+    return chat(f"""
+Goal:
+{GOAL}
+
+Current Best:
+{current}
+
+New Candidate:
+{new}
+
+Which is better and why?
+
+Return ONLY the better idea.
+""", 300)
 
 
 # -----------------------
@@ -251,26 +284,30 @@ Goal:
 All Steps:
 {memory}
 
+Best Idea:
+{BEST_IDEA}
+
 Create a breakthrough-level synthesis.
 
 Include:
-- best idea
-- rejected ideas
-- strongest hypothesis
-- final refined model
+- evolution of ideas
+- competing models
+- failures
+- final refined theory
 """, 1500)
 
 
 # -----------------------
-# 🚀 MAIN LOOP (FIXED)
+# 🚀 MAIN LOOP
 # -----------------------
-def run_agent_stream(goal, max_steps=6):
-    global GOAL, memory, RUN_ID, STOP_FLAG
+def run_agent_stream(goal, max_steps=7):
+    global GOAL, memory, RUN_ID, STOP_FLAG, BEST_IDEA
 
     GOAL = goal
     memory = []
     STOP_FLAG = False
     RUN_ID = str(uuid.uuid4())
+    BEST_IDEA = None
 
     yield f"event: start\ndata: {safe(goal)}\n\n"
 
@@ -294,8 +331,8 @@ def run_agent_stream(goal, max_steps=6):
         insight = synthesize(result)
         yield f"event: insight\ndata: {safe(insight)}\n\n"
 
-        models = competing_models(insight)
-        yield f"event: models\ndata: {safe(models)}\n\n"
+        divergence = divergent_ideas(insight)
+        yield f"event: divergence\ndata: {safe(divergence)}\n\n"
 
         critique = destroy(insight)
         yield f"event: critique\ndata: {safe(critique)}\n\n"
@@ -312,25 +349,28 @@ def run_agent_stream(goal, max_steps=6):
         scoring = score(refined)
         yield f"event: score\ndata: {safe(scoring)}\n\n"
 
+        # 🏆 EVOLUTIONARY SELECTION
+        if BEST_IDEA is None:
+            BEST_IDEA = refined
+        else:
+            BEST_IDEA = select_best(BEST_IDEA, refined)
+
+        yield f"event: best\ndata: {safe(BEST_IDEA)}\n\n"
+
         memory.append({
             "step": step + 1,
             "plan": plan,
-            "action": action,
-            "result": result,
             "insight": insight,
-            "models": models,
+            "divergence": divergence,
             "critique": critique,
             "refined": refined,
             "mutation": mutation,
             "hypothesis": hypo,
-            "score": scoring
+            "score": scoring,
+            "best": BEST_IDEA
         })
 
         save_memory()
-
-        # 🔥 FORCE MINIMUM STEPS
-        if step >= MIN_STEPS:
-            pass  # no early stopping
 
         time.sleep(0.3)
 
