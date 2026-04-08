@@ -11,6 +11,7 @@ memory = []
 RUN_ID = None
 STOP_FLAG = False
 BEST_IDEA = None
+RUNNING = False  # 🔒 LOCK
 
 MEMORY_FILE = "memory.json"
 
@@ -19,8 +20,9 @@ MEMORY_FILE = "memory.json"
 # 🛑 STOP
 # -----------------------
 def stop():
-    global STOP_FLAG
+    global STOP_FLAG, RUNNING
     STOP_FLAG = True
+    RUNNING = False
 
 
 # -----------------------
@@ -69,16 +71,12 @@ def chat(prompt, max_tokens=1200):
 # 🧠 PLAN
 # -----------------------
 def generate_plan():
-    step_number = len(memory) + 1
-
     return chat(f"""
 Goal:
 {GOAL}
 
 Best Idea So Far:
 {BEST_IDEA}
-
-Step: {step_number}
 
 Generate ONE step that pushes deeper understanding.
 Avoid repetition.
@@ -129,7 +127,7 @@ Goal:
 Result:
 {result}
 
-Extract ONE deep insight aligned to the goal.
+Extract ONE deep insight.
 """, 600)
 
 
@@ -144,107 +142,58 @@ Goal:
 Base Idea:
 {insight}
 
-Generate 3 IDEAS that are MUTUALLY EXCLUSIVE.
-
-Rules:
-- They cannot all be true simultaneously
-- Each must contradict a core assumption of the others
-
-Format:
-
-Idea A:
-...
-
-Idea B:
-...
-
-Idea C:
-...
+Generate 3 mutually exclusive ideas.
 """, 700)
 
 
 # -----------------------
-# ⚔️ HARD DEBATE
+# ⚔️ DEBATE
 # -----------------------
-def debate(ideas_text):
+def debate(ideas):
     return chat(f"""
 Goal:
 {GOAL}
 
 Ideas:
-{ideas_text}
+{ideas}
 
-Force a DIRECT debate.
-
-Rules:
-- Each idea attacks the others
-- Identify contradictions clearly
-- No soft language
-- Do NOT resolve
-
-Format:
-
-Attack 1:
-...
-
-Attack 2:
-...
-
-Attack 3:
-...
+Force direct attacks between ideas.
+No soft language. No resolution.
 """, 700)
 
 
 # -----------------------
-# 🪓 IRREVERSIBLE ELIMINATION
+# 🪓 ELIMINATION
 # -----------------------
-def eliminate(ideas_text):
+def eliminate(ideas):
     return chat(f"""
 Goal:
 {GOAL}
 
 Ideas:
-{ideas_text}
+{ideas}
 
-Choose ONE idea to eliminate permanently.
-
-Rules:
-- It is removed forever
-- It MUST NOT appear again
-- Be decisive
-
-Return:
-
-Eliminated Idea:
-Reason:
+Eliminate ONE idea permanently.
+It cannot return.
 """, 400)
 
 
 # -----------------------
 # 🧠 DIALOGUE
 # -----------------------
-def dialogue(ideas_text):
+def dialogue(ideas):
     return chat(f"""
 Goal:
 {GOAL}
 
 Ideas:
-{ideas_text}
+{ideas}
 
-Now shift into dialogue.
+Now allow dialogue.
 
-Rules:
-- Each idea tries to understand the others
-- Extract what might be TRUE in each
+- Extract truth from each
 - Do NOT merge
 - Do NOT erase differences
-
-Focus:
-- translation between perspectives
-- shared patterns
-
-Output:
-Refined perspectives after dialogue
 """, 700)
 
 
@@ -259,13 +208,7 @@ Goal:
 Idea:
 {insight}
 
-Destroy this idea.
-
-- Identify fatal flaw
-- Show how it breaks
-- Explain falsification
-
-Be decisive.
+Find fatal flaw and how to break it.
 """, 500)
 
 
@@ -274,16 +217,13 @@ Be decisive.
 # -----------------------
 def refine(insight, critique):
     return chat(f"""
-Goal:
-{GOAL}
+Improve this idea using the critique:
 
-Original Idea:
+Idea:
 {insight}
 
 Critique:
 {critique}
-
-Strengthen the idea.
 """, 500)
 
 
@@ -292,13 +232,9 @@ Strengthen the idea.
 # -----------------------
 def mutate(insight):
     return chat(f"""
-Goal:
-{GOAL}
+Create a surprising variation of:
 
-Idea:
 {insight}
-
-Create a surprising variation.
 """, 400)
 
 
@@ -307,17 +243,9 @@ Create a surprising variation.
 # -----------------------
 def hypothesis(insight):
     return chat(f"""
-Goal:
-{GOAL}
+Turn into testable hypothesis:
 
-Idea:
 {insight}
-
-Make it testable.
-
-Include:
-- prediction
-- method
 """, 500)
 
 
@@ -326,16 +254,12 @@ Include:
 # -----------------------
 def score(insight):
     return chat(f"""
-Goal:
-{GOAL}
+Score 1–10:
 
-Score (1-10):
+Novelty
+Usefulness
+Plausibility
 
-Novelty:
-Usefulness:
-Plausibility:
-
-Idea:
 {insight}
 """, 200)
 
@@ -345,21 +269,15 @@ Idea:
 # -----------------------
 def enforce_dominance(current, new):
     return chat(f"""
-Goal:
-{GOAL}
+ONLY ONE survives:
 
-Current Dominant:
+Current:
 {current}
 
-Challenger:
+New:
 {new}
 
-ONLY ONE survives.
-
-- No compromise
-- No blending
-
-Return ONLY the winner.
+Return winner only.
 """, 300)
 
 
@@ -374,19 +292,14 @@ Goal:
 Steps:
 {memory}
 
-Constraints:
-- Respect eliminations (no revival)
-- Identify dominant idea
-- Show unresolved conflicts
+Respect eliminations.
 
-Produce:
-
-1. Competing ideas
-2. Eliminated ideas
-3. Debate highlights
-4. Dialogue insights
-5. Dominant theory (clear winner)
-6. Final integrated model (based on dominance only)
+Provide:
+- competing ideas
+- eliminated ideas
+- debate highlights
+- dominant theory
+- final model
 """, 1500)
 
 
@@ -394,7 +307,15 @@ Produce:
 # 🚀 MAIN LOOP
 # -----------------------
 def run_agent_stream(goal, max_steps=7):
-    global GOAL, memory, RUN_ID, STOP_FLAG, BEST_IDEA
+    global GOAL, memory, RUN_ID, STOP_FLAG, BEST_IDEA, RUNNING
+
+    # 🔒 PREVENT DOUBLE RUN
+    if RUNNING:
+        yield "event: error\ndata: Agent already running\n\n"
+        return
+
+    RUNNING = True
+    print(f"RUN STARTED: {goal}")
 
     GOAL = goal
     memory = []
@@ -402,97 +323,84 @@ def run_agent_stream(goal, max_steps=7):
     RUN_ID = str(uuid.uuid4())
     BEST_IDEA = None
 
-    yield f"event: start\ndata: {safe(goal)}\n\n"
+    try:
+        yield f"event: start\ndata: {safe(goal)}\n\n"
 
-    for step in range(max_steps):
+        for step in range(max_steps):
 
-        if STOP_FLAG:
-            yield "event: stopped\ndata: stopped\n\n"
-            return
+            if STOP_FLAG:
+                yield "event: stopped\ndata: stopped\n\n"
+                return
 
-        yield f"event: step\ndata: {step+1}\n\n"
+            yield f"event: step\ndata: {step+1}\n\n"
 
-        # PLAN
-        plan = generate_plan()
-        yield f"event: plan\ndata: {safe(plan)}\n\n"
+            plan = generate_plan()
+            yield f"event: plan\ndata: {safe(plan)}\n\n"
 
-        # ACTION
-        action = decide_action(plan)
-        yield f"event: action\ndata: {safe(json.dumps(action))}\n\n"
+            action = decide_action(plan)
+            yield f"event: action\ndata: {safe(json.dumps(action))}\n\n"
 
-        # EXECUTE
-        result = execute_action(action)
-        yield f"event: result\ndata: {safe(result)}\n\n"
+            result = execute_action(action)
+            yield f"event: result\ndata: {safe(result)}\n\n"
 
-        # SYNTHESIS
-        insight = synthesize(result)
-        yield f"event: insight\ndata: {safe(insight)}\n\n"
+            insight = synthesize(result)
+            yield f"event: insight\ndata: {safe(insight)}\n\n"
 
-        # ⚔️ DIVERGENCE
-        divergence = divergent_ideas(insight)
-        yield f"event: divergence\ndata: {safe(divergence)}\n\n"
+            divergence = divergent_ideas(insight)
+            yield f"event: divergence\ndata: {safe(divergence)}\n\n"
 
-        # ⚔️ DEBATE
-        debate_result = debate(divergence)
-        yield f"event: debate\ndata: {safe(debate_result)}\n\n"
+            debate_result = debate(divergence)
+            yield f"event: debate\ndata: {safe(debate_result)}\n\n"
 
-        # 🪓 ELIMINATION
-        eliminated = eliminate(divergence)
-        yield f"event: eliminated\ndata: {safe(eliminated)}\n\n"
+            eliminated = eliminate(divergence)
+            yield f"event: eliminated\ndata: {safe(eliminated)}\n\n"
 
-        # 🧠 DIALOGUE
-        dialogue_result = dialogue(divergence)
-        yield f"event: dialogue\ndata: {safe(dialogue_result)}\n\n"
+            dialogue_result = dialogue(divergence)
+            yield f"event: dialogue\ndata: {safe(dialogue_result)}\n\n"
 
-        # 💀 DESTRUCTION
-        critique = destroy(insight)
-        yield f"event: critique\ndata: {safe(critique)}\n\n"
+            critique = destroy(insight)
+            yield f"event: critique\ndata: {safe(critique)}\n\n"
 
-        # 🔁 REFINE
-        refined = refine(insight, critique)
-        yield f"event: refined\ndata: {safe(refined)}\n\n"
+            refined = refine(insight, critique)
+            yield f"event: refined\ndata: {safe(refined)}\n\n"
 
-        # 🧬 MUTATION
-        mutation = mutate(refined)
-        yield f"event: mutation\ndata: {safe(mutation)}\n\n"
+            mutation = mutate(refined)
+            yield f"event: mutation\ndata: {safe(mutation)}\n\n"
 
-        # 🧪 HYPOTHESIS
-        hypo = hypothesis(refined)
-        yield f"event: hypothesis\ndata: {safe(hypo)}\n\n"
+            hypo = hypothesis(refined)
+            yield f"event: hypothesis\ndata: {safe(hypo)}\n\n"
 
-        # 📊 SCORE
-        scoring = score(refined)
-        yield f"event: score\ndata: {safe(scoring)}\n\n"
+            scoring = score(refined)
+            yield f"event: score\ndata: {safe(scoring)}\n\n"
 
-        # 🏆 DOMINANCE
-        if BEST_IDEA is None:
-            BEST_IDEA = refined
-        else:
-            BEST_IDEA = enforce_dominance(BEST_IDEA, refined)
+            if BEST_IDEA is None:
+                BEST_IDEA = refined
+            else:
+                BEST_IDEA = enforce_dominance(BEST_IDEA, refined)
 
-        yield f"event: best\ndata: {safe(BEST_IDEA)}\n\n"
+            yield f"event: best\ndata: {safe(BEST_IDEA)}\n\n"
 
-        # 🧠 MEMORY
-        memory.append({
-            "step": step + 1,
-            "plan": plan,
-            "insight": insight,
-            "divergence": divergence,
-            "debate": debate_result,
-            "eliminated": eliminated,
-            "dialogue": dialogue_result,
-            "critique": critique,
-            "refined": refined,
-            "mutation": mutation,
-            "hypothesis": hypo,
-            "score": scoring,
-            "best": BEST_IDEA
-        })
+            memory.append({
+                "step": step + 1,
+                "plan": plan,
+                "insight": insight,
+                "divergence": divergence,
+                "debate": debate_result,
+                "eliminated": eliminated,
+                "dialogue": dialogue_result,
+                "critique": critique,
+                "refined": refined,
+                "best": BEST_IDEA
+            })
 
-        save_memory()
-        time.sleep(0.3)
+            save_memory()
+            time.sleep(0.3)
 
-    # FINAL OUTPUT
-    final = final_report()
-    yield f"event: final\ndata: {safe(final)}\n\n"
-    yield f"event: done\ndata: complete\n\n"
+        final = final_report()
+        yield f"event: final\ndata: {safe(final)}\n\n"
+        yield f"event: done\ndata: complete\n\n"
+
+    finally:
+        # 🔓 ALWAYS RELEASE LOCK
+        RUNNING = False
+        print("RUN ENDED")
