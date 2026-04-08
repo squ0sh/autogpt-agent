@@ -1,6 +1,6 @@
 import os
 from flask import Flask, Response, request, render_template, send_from_directory
-from agent import run_agent
+from agent import run_agent_stream, stop
 
 app = Flask(__name__)
 
@@ -15,7 +15,7 @@ def stream():
     goal = request.args.get("goal", "")
 
     def event_stream():
-        for event in run_agent(goal):
+        for event in run_agent_stream(goal):
             yield event
 
     return Response(event_stream(), mimetype="text/event-stream")
