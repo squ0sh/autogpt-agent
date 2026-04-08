@@ -15,7 +15,28 @@ MEMORY_FILE = "memory.json"
 
 
 # -----------------------
-# 🛑 STOP
+# 🧾 MEMORY STORAGE
+# -----------------------
+def save_memory():
+    data = {}
+    if os.path.exists(MEMORY_FILE):
+        with open(MEMORY_FILE, "r") as f:
+            try:
+                data = json.load(f)
+            except:
+                data = {}
+
+    data[RUN_ID] = {
+        "goal": GOAL,
+        "steps": memory
+    }
+
+    with open(MEMORY_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+# -----------------------
+# 🛑 STOP FUNCTION (FIXED)
 # -----------------------
 def stop():
     global STOP_FLAG
@@ -23,25 +44,7 @@ def stop():
 
 
 # -----------------------
-# 💾 MEMORY
-# -----------------------
-def save_memory():
-    data = {}
-    if os.path.exists(MEMORY_FILE):
-        try:
-            with open(MEMORY_FILE, "r") as f:
-                data = json.load(f)
-        except:
-            data = {}
-
-    data[RUN_ID] = {"goal": GOAL, "steps": memory}
-
-    with open(MEMORY_FILE, "w") as f:
-        json.dump(data, f, indent=2)
-
-
-# -----------------------
-# ⚡ SAFE STREAM
+# ⚡ STREAM SAFE
 # -----------------------
 def safe(text):
     return str(text).replace("\n", "\\n")
@@ -51,187 +54,225 @@ def safe(text):
 # 🧠 CORE CHAT
 # -----------------------
 def chat(prompt, max_tokens=1200):
-    res = client.chat.completions.create(
+    response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.8,
+        temperature=0.7,
         max_tokens=max_tokens,
     )
-    return res.choices[0].message.content.strip()
+    return response.choices[0].message.content.strip()
 
 
 # -----------------------
-# 🧠 PLAN
+# 🧠 STEP GENERATION
 # -----------------------
 def generate_plan():
     step_number = len(memory) + 1
 
-    return chat(f"""
+    prompt = f"""
+You are a high-level research agent.
+
 Goal:
 {GOAL}
 
-Step {step_number}
+Previous steps:
+{memory}
 
-Create ONE step that pushes toward new insight.
-Avoid repetition.
-""", 500)
+Current step: {step_number}
+
+RULES:
+- ONLY generate ONE step
+- Push toward NEW INSIGHT
+- Avoid repetition
+
+FORMAT:
+Step {step_number}: <title>
+
+- action 1
+- action 2
+- action 3
+"""
+
+    return chat(prompt, 600)
 
 
 # -----------------------
-# 🎯 ACTION
+# 🎯 ACTION SELECTION
 # -----------------------
 def decide_action(plan):
-    try:
-        return json.loads(chat(f"""
+    prompt = f"""
 Plan:
 {plan}
 
-Choose:
-search | analyze | write
+Choose ONE action:
+- search
+- analyze
+- write
 
-Return JSON
-""", 200))
+Return JSON:
+{{"action": "...", "input": "..."}}
+"""
+
+    try:
+        return json.loads(chat(prompt, 300))
     except:
         return {"action": "analyze", "input": "continue reasoning"}
 
 
 # -----------------------
-# 🛠 EXECUTE
+# 🛠 TOOL EXECUTION
 # -----------------------
 def execute_action(action):
-    from tools import run_tool
     try:
-        return run_tool(action)
+        from tools import run_tool
+        result = run_tool(action)
     except Exception as e:
-        return str(e)
+        result = f"Tool error: {str(e)}"
+
+    return result
 
 
 # -----------------------
 # 🔍 SYNTHESIS
 # -----------------------
 def synthesize(result):
-    return chat(f"""
-Extract deep patterns + generate ONE strong insight:
+    prompt = f"""
+Goal:
+{GOAL}
 
+New Information:
 {result}
-""", 600)
+
+Extract:
+
+1. Key Patterns
+2. Hidden Connections
+3. New Insight (must be original)
+"""
+    return chat(prompt, 700)
 
 
 # -----------------------
-# ⚔️ COMPETING MODELS
+# ⚔️ CRITIQUE
 # -----------------------
-def competing_models(insight):
-    return chat(f"""
-Create TWO competing explanations:
-
-Insight:
-{insight}
-
-Model A:
-Model B:
-
-Which is better and why?
-""", 600)
-
-
-# -----------------------
-# 💀 DESTRUCTION
-# -----------------------
-def destroy(insight):
-    return chat(f"""
-Destroy this idea completely:
+def critique(insight):
+    prompt = f"""
+Critically analyze this:
 
 {insight}
 
-Why is it wrong?
-""", 400)
+Return:
 
+Weaknesses:
+- ...
 
-# -----------------------
-# 🔁 REFINE
-# -----------------------
-def refine(insight, critique):
-    return chat(f"""
-Original Idea:
-{insight}
+Contradictions:
+- ...
 
-Critique:
-{critique}
-
-Refine into a stronger idea.
-""", 500)
-
-
-# -----------------------
-# 🧬 MUTATION
-# -----------------------
-def mutate(insight):
-    return chat(f"""
-Generate a surprising or unconventional variation of this idea:
-
-{insight}
-""", 400)
+What might be wrong:
+- ...
+"""
+    return chat(prompt, 600)
 
 
 # -----------------------
 # 🧪 HYPOTHESIS
 # -----------------------
-def hypothesis(insight):
-    return chat(f"""
-Turn this into a testable hypothesis:
+def generate_hypothesis(insight):
+    prompt = f"""
+From this idea:
 
 {insight}
 
-Include:
-- prediction
-- test method
-""", 500)
+Generate a TESTABLE hypothesis.
+
+Format:
+Hypothesis:
+Prediction:
+How to test:
+"""
+    return chat(prompt, 600)
 
 
 # -----------------------
-# 📊 SCORE
+# 📊 SCORING
 # -----------------------
 def score(insight):
-    return chat(f"""
-Score 1-10:
+    prompt = f"""
+Score this idea (1-10):
+
+{insight}
+
+Return:
 
 Novelty:
 Usefulness:
 Confidence:
-
-{insight}
-""", 200)
+"""
+    return chat(prompt, 300)
 
 
 # -----------------------
 # 🧠 GOAL CHECK
 # -----------------------
-def done():
-    return "yes" in chat(f"""
+def is_goal_complete():
+    prompt = f"""
 Goal:
 {GOAL}
 
 Steps:
 {memory}
 
-Done?
-""", 10).lower()
+Has the goal been FULLY achieved?
+
+Return ONLY:
+YES or NO
+"""
+    result = chat(prompt, 10).lower()
+    return "yes" in result
 
 
 # -----------------------
-# 🧠 FINAL
+# 🧠 FINAL OUTPUT
 # -----------------------
-def final_report():
-    return chat(f"""
-Create a breakthrough-level synthesis:
+def generate_final():
+    compiled = ""
 
-{memory}
+    for step in memory:
+        compiled += f"""
+Step {step['step']}
+
+Insight:
+{step['insight']}
+
+Critique:
+{step['critique']}
+
+Hypothesis:
+{step['hypothesis']}
+
+Score:
+{step['score']}
+
+---
+"""
+
+    prompt = f"""
+Create a FINAL SYNTHESIS REPORT.
+
+Goal:
+{GOAL}
+
+Data:
+{compiled}
 
 Include:
-- best idea
-- rejected ideas
-- strongest hypothesis
-""", 1500)
+- Core Patterns
+- Contradictions
+- Breakthrough Ideas
+- Best Hypothesis
+"""
+    return chat(prompt, 1500)
 
 
 # -----------------------
@@ -247,10 +288,13 @@ def run_agent_stream(goal, max_steps=6):
 
     yield f"event: start\ndata: {safe(goal)}\n\n"
 
-    for step in range(max_steps):
+    step = 0
 
+    while step < max_steps:
+
+        # 🛑 STOP CHECK (FIXED)
         if STOP_FLAG:
-            yield "event: stopped\ndata: stopped\n\n"
+            yield f"event: stopped\ndata: stopped by user\n\n"
             return
 
         yield f"event: step\ndata: {step+1}\n\n"
@@ -264,46 +308,39 @@ def run_agent_stream(goal, max_steps=6):
         result = execute_action(action)
         yield f"event: result\ndata: {safe(result)}\n\n"
 
+        # 🔥 BREAKTHROUGH PIPELINE
         insight = synthesize(result)
         yield f"event: insight\ndata: {safe(insight)}\n\n"
 
-        models = competing_models(insight)
-        yield f"event: models\ndata: {safe(models)}\n\n"
+        critique_text = critique(insight)
+        yield f"event: critique\ndata: {safe(critique_text)}\n\n"
 
-        critique = destroy(insight)
-        yield f"event: critique\ndata: {safe(critique)}\n\n"
+        hypothesis = generate_hypothesis(insight)
+        yield f"event: hypothesis\ndata: {safe(hypothesis)}\n\n"
 
-        refined = refine(insight, critique)
-        yield f"event: refined\ndata: {safe(refined)}\n\n"
-
-        mutation = mutate(refined)
-        yield f"event: mutation\ndata: {safe(mutation)}\n\n"
-
-        hypo = hypothesis(refined)
-        yield f"event: hypothesis\ndata: {safe(hypo)}\n\n"
-
-        scoring = score(refined)
-        yield f"event: score\ndata: {safe(scoring)}\n\n"
+        score_text = score(insight)
+        yield f"event: score\ndata: {safe(score_text)}\n\n"
 
         memory.append({
             "step": step + 1,
+            "plan": plan,
+            "action": action,
+            "result": result,
             "insight": insight,
-            "models": models,
-            "critique": critique,
-            "refined": refined,
-            "mutation": mutation,
-            "hypothesis": hypo,
-            "score": scoring
+            "critique": critique_text,
+            "hypothesis": hypothesis,
+            "score": score_text
         })
 
         save_memory()
 
-        if done():
+        if is_goal_complete():
             break
 
+        step += 1
         time.sleep(0.3)
 
-    final = final_report()
+    final = generate_final()
 
     yield f"event: final\ndata: {safe(final)}\n\n"
     yield f"event: done\ndata: complete\n\n"
