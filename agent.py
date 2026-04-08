@@ -4,7 +4,7 @@ from openai import OpenAI
 
 client = OpenAI()
 
-MODEL = "gpt”-4o-mini  # or your preferred model
+MODEL = "gpt-4o-mini"  # or your preferred model
 
 
 # =========================
