@@ -10,16 +10,10 @@ GOAL = ""
 memory = []
 RUN_ID = None
 STOP_FLAG = False
+BEST_IDEA = None
 
 MEMORY_FILE = "memory.json"
-
-# 🌌 Layered truth system
-BEST_IDEAS = {
-    "empirical": None,
-    "experiential": None,
-    "structural": None,
-    "speculative": None
-}
+MIN_STEPS = 5
 
 
 # -----------------------
@@ -31,68 +25,21 @@ def stop():
 
 
 # -----------------------
-# 💾 LOAD EVOLUTION
-# -----------------------
-def load_evolution():
-    if not os.path.exists(MEMORY_FILE):
-        return [], []
-
-    try:
-        with open(MEMORY_FILE, "r") as f:
-            data = json.load(f)
-
-        evo = data.get("evolution", {})
-        return evo.get("survivors", []), evo.get("failures", [])
-    except:
-        return [], []
-
-
-# -----------------------
-# 💀 RECORD FAILURE
-# -----------------------
-def record_failure(text):
-    data = {}
-
-    if os.path.exists(MEMORY_FILE):
-        try:
-            with open(MEMORY_FILE, "r") as f:
-                data = json.load(f)
-        except:
-            data = {}
-
-    if "evolution" not in data:
-        data["evolution"] = {"survivors": [], "failures": []}
-
-    data["evolution"]["failures"].append(text)
-
-    with open(MEMORY_FILE, "w") as f:
-        json.dump(data, f, indent=2)
-
-
-# -----------------------
-# 💾 SAVE MEMORY
+# 💾 MEMORY SAVE
 # -----------------------
 def save_memory():
     data = {}
-
     if os.path.exists(MEMORY_FILE):
         try:
             with open(MEMORY_FILE, "r") as f:
                 data = json.load(f)
         except:
             data = {}
-
-    if "evolution" not in data:
-        data["evolution"] = {"survivors": [], "failures": []}
-
-    for idea in BEST_IDEAS.values():
-        if idea:
-            data["evolution"]["survivors"].append(idea)
 
     data[RUN_ID] = {
         "goal": GOAL,
         "steps": memory,
-        "best_ideas": BEST_IDEAS
+        "best_idea": BEST_IDEA
     }
 
     with open(MEMORY_FILE, "w") as f:
@@ -113,7 +60,7 @@ def chat(prompt, max_tokens=1200):
     res = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.9,
+        temperature=1.0,
         max_tokens=max_tokens,
     )
     return res.choices[0].message.content.strip()
@@ -123,22 +70,19 @@ def chat(prompt, max_tokens=1200):
 # 🧠 PLAN
 # -----------------------
 def generate_plan():
-    survivors, failures = load_evolution()
     step_number = len(memory) + 1
 
     return chat(f"""
 Goal:
 {GOAL}
 
-Past Winners:
-{survivors[-3:]}
-
-Past Failures:
-{failures[-3:]}
+Best Idea:
+{BEST_IDEA}
 
 Step: {step_number}
 
 Generate ONE step that pushes deeper understanding.
+Avoid repetition.
 """, 500)
 
 
@@ -186,7 +130,7 @@ Goal:
 Result:
 {result}
 
-Extract ONE deep insight.
+Extract ONE deep insight aligned to the goal.
 """, 600)
 
 
@@ -201,139 +145,162 @@ Goal:
 Base Idea:
 {insight}
 
-Generate 3 mutually exclusive ideas.
-""", 700)
+Generate 3 IDEAS that are MUTUALLY EXCLUSIVE.
 
-
-# -----------------------
-# 💀 DESTRUCTION
-# -----------------------
-def destroy_each(ideas):
-    return chat(f"""
-Destroy each idea:
-
-{ideas}
-
-Find fatal flaws.
+They must contradict each other.
 """, 700)
 
 
 # -----------------------
 # 🪓 ELIMINATION
 # -----------------------
-def eliminate(ideas):
+def eliminate(ideas_text):
     return chat(f"""
-From these ideas:
+Goal:
+{GOAL}
 
-{ideas}
-
-Pick the weakest and explain why.
-""", 400)
-
-
-# -----------------------
-# 🧠 SELECT SURVIVOR
-# -----------------------
-def select_survivor(ideas, critique):
-    return chat(f"""
 Ideas:
-{ideas}
+{ideas_text}
 
-Critique:
-{critique}
-
-Select strongest idea.
+Choose ONE idea to eliminate permanently.
+Explain why it fails.
 """, 400)
+
+
+# -----------------------
+# 💀 DESTRUCTION
+# -----------------------
+def destroy(insight):
+    return chat(f"""
+Idea:
+{insight}
+
+Destroy this idea.
+
+- biggest flaw
+- how it breaks
+- how to falsify
+""", 500)
 
 
 # -----------------------
 # 🔁 REFINE
 # -----------------------
-def refine(idea, critique):
+def refine(insight, critique):
     return chat(f"""
-Improve this idea:
+Idea:
+{insight}
 
-{idea}
-
-Using critique:
+Critique:
 {critique}
+
+Make it stronger.
 """, 500)
 
 
 # -----------------------
-# 🧬 MUTATE
+# 🧬 FORCE NOVELTY (NEW)
 # -----------------------
-def mutate(idea):
+def force_novelty(insight):
     return chat(f"""
-Create a stronger variation:
+Goal:
+{GOAL}
 
-{idea}
+Idea:
+{insight}
+
+Transform this into something TRULY NEW.
+
+Rules:
+- Must NOT resemble existing frameworks
+- Introduce a new mechanism
+- Should feel unfamiliar or uncomfortable
+
+Do NOT refine — mutate it.
+""", 700)
+
+
+# -----------------------
+# 🧪 REALITY TEST (NEW)
+# -----------------------
+def reality_test(insight):
+    return chat(f"""
+Idea:
+{insight}
+
+Test it:
+
+- What would this look like in reality?
+- What proves it?
+- What disproves it?
+""", 500)
+
+
+# -----------------------
+# 🧬 MUTATION
+# -----------------------
+def mutate(insight):
+    return chat(f"""
+Idea:
+{insight}
+
+Create a surprising variation.
 """, 400)
 
 
 # -----------------------
-# 🧬 NOVELTY BOOST
+# 🧪 HYPOTHESIS
 # -----------------------
-def novelty_boost(idea):
+def hypothesis(insight):
     return chat(f"""
-Make this idea more novel and less conventional:
+Idea:
+{insight}
 
-{idea}
+Make testable:
+
+- prediction
+- method
 """, 500)
 
 
 # -----------------------
-# 🧠 CLASSIFY
+# 📊 SCORE
 # -----------------------
-def classify_idea(idea):
+def score(insight):
     return chat(f"""
-Classify into ONE:
+Score 1-10:
 
-- empirical
-- experiential
-- structural
-- speculative
+Novelty:
+Usefulness:
+Plausibility:
 
 Idea:
-{idea}
-
-Return only category.
-""", 50).lower().strip()
+{insight}
+""", 200)
 
 
 # -----------------------
-# 🏆 SELECT BEST PER LAYER
+# 🏆 SELECTION (UPGRADED)
 # -----------------------
 def select_best(current, new):
     return chat(f"""
+Choose ONE:
+
 Current:
 {current}
 
 New:
 {new}
 
-Choose stronger.
-Return only winner.
+Criteria priority:
+1. Novelty
+2. Transformative potential
+3. Depth
+
+Reject safe or familiar ideas.
+
+Return ONLY winner.
 """, 300)
-
-
-# -----------------------
-# ⚔️ CROSS-LAYER WARFARE
-# -----------------------
-def cross_layer_attack(layers):
-    return chat(f"""
-We have multiple layers of truth:
-
-{layers}
-
-Do the following:
-
-1. Each layer attacks another layer
-2. Identify what it gets WRONG
-3. Identify what it cannot explain
-
-Be critical and precise.
-""", 800)
 
 
 # -----------------------
@@ -347,38 +314,29 @@ Goal:
 Steps:
 {memory}
 
-Layered Ideas:
-{BEST_IDEAS}
+Best Idea:
+{BEST_IDEA}
 
-Create a final layered reality model.
+Produce a breakthrough synthesis including:
 
-Include:
-- each layer’s best idea
-- cross-layer conflicts
-- tensions
-- paradoxes
-
-DO NOT unify into one answer.
+- evolution of ideas
+- contradictions
+- paradigm shifts
+- final theory
 """, 1500)
 
 
 # -----------------------
 # 🚀 MAIN LOOP
 # -----------------------
-def run_agent_stream(goal, max_steps=7):
-    global GOAL, memory, RUN_ID, STOP_FLAG, BEST_IDEAS
+def run_agent_stream(goal, max_steps=8):
+    global GOAL, memory, RUN_ID, STOP_FLAG, BEST_IDEA
 
     GOAL = goal
     memory = []
     STOP_FLAG = False
     RUN_ID = str(uuid.uuid4())
-
-    BEST_IDEAS = {
-        "empirical": None,
-        "experiential": None,
-        "structural": None,
-        "speculative": None
-    }
+    BEST_IDEA = None
 
     yield f"event: start\ndata: {safe(goal)}\n\n"
 
@@ -390,72 +348,96 @@ def run_agent_stream(goal, max_steps=7):
 
         yield f"event: step\ndata: {step+1}\n\n"
 
+        # 🧠 PLAN
         plan = generate_plan()
         yield f"event: plan\ndata: {safe(plan)}\n\n"
 
+        # 🎯 ACTION
         action = decide_action(plan)
         yield f"event: action\ndata: {safe(json.dumps(action))}\n\n"
 
+        # 🛠 EXECUTE
         result = execute_action(action)
         yield f"event: result\ndata: {safe(result)}\n\n"
 
+        # 🔍 SYNTHESIS
         insight = synthesize(result)
         yield f"event: insight\ndata: {safe(insight)}\n\n"
 
-        ideas = divergent_ideas(insight)
-        yield f"event: divergence\ndata: {safe(ideas)}\n\n"
+        # ⚔️ DIVERGENCE
+        divergence = divergent_ideas(insight)
+        yield f"event: divergence\ndata: {safe(divergence)}\n\n"
 
-        destruction = destroy_each(ideas)
-        yield f"event: destruction\ndata: {safe(destruction)}\n\n"
-
-        eliminated = eliminate(ideas)
+        # 🪓 ELIMINATION
+        eliminated = eliminate(divergence)
         yield f"event: eliminated\ndata: {safe(eliminated)}\n\n"
 
-        record_failure(eliminated)
+        # 💀 DESTRUCTION
+        critique = destroy(insight)
+        yield f"event: critique\ndata: {safe(critique)}\n\n"
 
-        survivor = select_survivor(ideas, destruction)
-        yield f"event: survivor\ndata: {safe(survivor)}\n\n"
-
-        refined = refine(survivor, destruction)
+        # 🔁 REFINE
+        refined = refine(insight, critique)
         yield f"event: refined\ndata: {safe(refined)}\n\n"
 
-        mutation = mutate(refined)
+        # 🧬 FORCE NOVELTY
+        novel = force_novelty(refined)
+        yield f"event: novel\ndata: {safe(novel)}\n\n"
+
+        # 🧪 REALITY TEST
+        tested = reality_test(novel)
+        yield f"event: test\ndata: {safe(tested)}\n\n"
+
+        # 🧬 MUTATE
+        mutation = mutate(novel)
         yield f"event: mutation\ndata: {safe(mutation)}\n\n"
 
-        novel = novelty_boost(mutation)
-        yield f"event: novelty\ndata: {safe(novel)}\n\n"
+        # 🧪 HYPOTHESIS
+        hypo = hypothesis(novel)
+        yield f"event: hypothesis\ndata: {safe(hypo)}\n\n"
 
-        category = classify_idea(novel)
-        yield f"event: category\ndata: {safe(category)}\n\n"
+        # 📊 SCORE
+        scoring = score(novel)
+        yield f"event: score\ndata: {safe(scoring)}\n\n"
 
-        current = BEST_IDEAS.get(category)
-
-        if current is None:
-            BEST_IDEAS[category] = novel
+        # 🏆 SURVIVAL
+        if BEST_IDEA is None:
+            BEST_IDEA = novel
         else:
-            BEST_IDEAS[category] = select_best(current, novel)
+            BEST_IDEA = select_best(BEST_IDEA, novel)
 
-        yield f"event: best_{category}\ndata: {safe(BEST_IDEAS[category])}\n\n"
+        yield f"event: best\ndata: {safe(BEST_IDEA)}\n\n"
 
-        # ⚔️ CROSS-LAYER WARFARE
-        attack = cross_layer_attack(BEST_IDEAS)
-        yield f"event: cross_attack\ndata: {safe(attack)}\n\n"
+        # 🧠 PARADIGM SHIFT (EVERY 3 STEPS)
+        if step % 3 == 0 and step != 0:
+            paradigm = chat(f"""
+Goal:
+{GOAL}
 
+All previous thinking:
+{memory}
+
+Abandon everything.
+
+Generate a radically different direction.
+""", 700)
+
+            yield f"event: paradigm_shift\ndata: {safe(paradigm)}\n\n"
+
+        # 💾 MEMORY
         memory.append({
             "step": step + 1,
             "plan": plan,
             "insight": insight,
-            "ideas": ideas,
-            "survivor": survivor,
             "novel": novel,
-            "category": category,
-            "layer_state": BEST_IDEAS,
-            "cross_attack": attack
+            "test": tested,
+            "best": BEST_IDEA
         })
 
         save_memory()
         time.sleep(0.3)
 
+    # 🧠 FINAL
     final = final_report()
 
     yield f"event: final\ndata: {safe(final)}\n\n"
