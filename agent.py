@@ -10,10 +10,9 @@ GOAL = ""
 memory = []
 RUN_ID = None
 STOP_FLAG = False
-
-MEMORY_FILE = "memory.json"
 BEST_IDEA = None
 
+MEMORY_FILE = "memory.json"
 MIN_STEPS = 5
 
 
@@ -61,7 +60,7 @@ def chat(prompt, max_tokens=1200):
     res = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.85,
+        temperature=0.9,
         max_tokens=max_tokens,
     )
     return res.choices[0].message.content.strip()
@@ -131,13 +130,12 @@ Goal:
 Result:
 {result}
 
-Extract deep patterns and generate ONE insight.
-Stay strictly aligned to the goal.
+Extract ONE deep insight aligned to the goal.
 """, 600)
 
 
 # -----------------------
-# ⚔️ DIVERGENCE ENGINE 🔥
+# ⚔️ DIVERGENCE (FORCED CONFLICT)
 # -----------------------
 def divergent_ideas(insight):
     return chat(f"""
@@ -147,22 +145,27 @@ Goal:
 Base Idea:
 {insight}
 
-Generate 3 COMPLETELY DIFFERENT interpretations.
+Generate 3 IDEAS that are MUTUALLY EXCLUSIVE.
 
 Rules:
-- Different paradigms
-- Challenge each other
-- Not minor variations
+- They CANNOT all be true at the same time
+- Each must contradict a core assumption of the others
 
 Format:
-Idea 1:
-Idea 2:
-Idea 3:
+
+Idea A:
+...
+
+Idea B:
+...
+
+Idea C:
+...
 """, 700)
 
 
 # -----------------------
-# 💀 DESTRUCTION (UPGRADED)
+# 💀 DESTRUCTION
 # -----------------------
 def destroy(insight):
     return chat(f"""
@@ -172,14 +175,37 @@ Goal:
 Idea:
 {insight}
 
-Attack this idea HARD.
+Destroy this idea.
 
-- What would disprove it?
-- Where does it break?
-- What assumptions are weak?
+- Identify the biggest flaw
+- Show how it breaks
+- Explain how to falsify it
 
-Be ruthless.
+Be decisive.
 """, 500)
+
+
+# -----------------------
+# 🪓 ELIMINATION (NEW)
+# -----------------------
+def eliminate(ideas_text):
+    return chat(f"""
+Goal:
+{GOAL}
+
+Ideas:
+{ideas_text}
+
+Choose ONE idea to eliminate permanently.
+
+- Pick the weakest
+- Explain why it fundamentally fails
+
+Return:
+
+Eliminated Idea:
+Reason:
+""", 400)
 
 
 # -----------------------
@@ -196,7 +222,7 @@ Original Idea:
 Critique:
 {critique}
 
-Refine into a stronger version.
+Improve the idea into a stronger version.
 """, 500)
 
 
@@ -211,7 +237,7 @@ Goal:
 Idea:
 {insight}
 
-Create a surprising alternative interpretation.
+Create a surprising alternative variation.
 """, 400)
 
 
@@ -254,7 +280,7 @@ Idea:
 
 
 # -----------------------
-# 🏆 SELECT BEST IDEA
+# 🏆 SELECTION
 # -----------------------
 def select_best(current, new):
     return chat(f"""
@@ -264,12 +290,16 @@ Goal:
 Current Best:
 {current}
 
-New Candidate:
+New Idea:
 {new}
 
-Which is better and why?
+Only ONE survives.
 
-Return ONLY the better idea.
+- Be ruthless
+- Choose stronger idea
+- Reject the other
+
+Return ONLY the winner.
 """, 300)
 
 
@@ -287,13 +317,13 @@ All Steps:
 Best Idea:
 {BEST_IDEA}
 
-Create a breakthrough-level synthesis.
+Create a breakthrough synthesis.
 
 Include:
-- evolution of ideas
-- competing models
-- failures
-- final refined theory
+- competing ideas
+- eliminations
+- evolution
+- final dominant theory
 """, 1500)
 
 
@@ -319,37 +349,51 @@ def run_agent_stream(goal, max_steps=7):
 
         yield f"event: step\ndata: {step+1}\n\n"
 
+        # PLAN
         plan = generate_plan()
         yield f"event: plan\ndata: {safe(plan)}\n\n"
 
+        # ACTION
         action = decide_action(plan)
         yield f"event: action\ndata: {safe(json.dumps(action))}\n\n"
 
+        # EXECUTE
         result = execute_action(action)
         yield f"event: result\ndata: {safe(result)}\n\n"
 
+        # SYNTHESIS
         insight = synthesize(result)
         yield f"event: insight\ndata: {safe(insight)}\n\n"
 
+        # ⚔️ DIVERGENCE
         divergence = divergent_ideas(insight)
         yield f"event: divergence\ndata: {safe(divergence)}\n\n"
 
+        # 🪓 ELIMINATION
+        eliminated = eliminate(divergence)
+        yield f"event: eliminated\ndata: {safe(eliminated)}\n\n"
+
+        # 💀 DESTRUCTION
         critique = destroy(insight)
         yield f"event: critique\ndata: {safe(critique)}\n\n"
 
+        # 🔁 REFINE
         refined = refine(insight, critique)
         yield f"event: refined\ndata: {safe(refined)}\n\n"
 
+        # 🧬 MUTATION
         mutation = mutate(refined)
         yield f"event: mutation\ndata: {safe(mutation)}\n\n"
 
+        # 🧪 HYPOTHESIS
         hypo = hypothesis(refined)
         yield f"event: hypothesis\ndata: {safe(hypo)}\n\n"
 
+        # 📊 SCORE
         scoring = score(refined)
         yield f"event: score\ndata: {safe(scoring)}\n\n"
 
-        # 🏆 EVOLUTIONARY SELECTION
+        # 🏆 SURVIVAL
         if BEST_IDEA is None:
             BEST_IDEA = refined
         else:
@@ -357,11 +401,13 @@ def run_agent_stream(goal, max_steps=7):
 
         yield f"event: best\ndata: {safe(BEST_IDEA)}\n\n"
 
+        # 🧠 MEMORY
         memory.append({
             "step": step + 1,
             "plan": plan,
             "insight": insight,
             "divergence": divergence,
+            "eliminated": eliminated,
             "critique": critique,
             "refined": refined,
             "mutation": mutation,
@@ -374,6 +420,7 @@ def run_agent_stream(goal, max_steps=7):
 
         time.sleep(0.3)
 
+    # 🧠 FINAL
     final = final_report()
 
     yield f"event: final\ndata: {safe(final)}\n\n"
