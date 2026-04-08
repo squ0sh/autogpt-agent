@@ -13,7 +13,6 @@ STOP_FLAG = False
 BEST_IDEA = None
 
 MEMORY_FILE = "memory.json"
-MIN_STEPS = 5
 
 
 # -----------------------
@@ -135,7 +134,7 @@ Extract ONE deep insight aligned to the goal.
 
 
 # -----------------------
-# ⚔️ DIVERGENCE (FORCED CONFLICT)
+# ⚔️ DIVERGENCE
 # -----------------------
 def divergent_ideas(insight):
     return chat(f"""
@@ -148,7 +147,7 @@ Base Idea:
 Generate 3 IDEAS that are MUTUALLY EXCLUSIVE.
 
 Rules:
-- They CANNOT all be true at the same time
+- They cannot all be true simultaneously
 - Each must contradict a core assumption of the others
 
 Format:
@@ -165,6 +164,91 @@ Idea C:
 
 
 # -----------------------
+# ⚔️ HARD DEBATE
+# -----------------------
+def debate(ideas_text):
+    return chat(f"""
+Goal:
+{GOAL}
+
+Ideas:
+{ideas_text}
+
+Force a DIRECT debate.
+
+Rules:
+- Each idea attacks the others
+- Identify contradictions clearly
+- No soft language
+- Do NOT resolve
+
+Format:
+
+Attack 1:
+...
+
+Attack 2:
+...
+
+Attack 3:
+...
+""", 700)
+
+
+# -----------------------
+# 🪓 IRREVERSIBLE ELIMINATION
+# -----------------------
+def eliminate(ideas_text):
+    return chat(f"""
+Goal:
+{GOAL}
+
+Ideas:
+{ideas_text}
+
+Choose ONE idea to eliminate permanently.
+
+Rules:
+- It is removed forever
+- It MUST NOT appear again
+- Be decisive
+
+Return:
+
+Eliminated Idea:
+Reason:
+""", 400)
+
+
+# -----------------------
+# 🧠 DIALOGUE
+# -----------------------
+def dialogue(ideas_text):
+    return chat(f"""
+Goal:
+{GOAL}
+
+Ideas:
+{ideas_text}
+
+Now shift into dialogue.
+
+Rules:
+- Each idea tries to understand the others
+- Extract what might be TRUE in each
+- Do NOT merge
+- Do NOT erase differences
+
+Focus:
+- translation between perspectives
+- shared patterns
+
+Output:
+Refined perspectives after dialogue
+""", 700)
+
+
+# -----------------------
 # 💀 DESTRUCTION
 # -----------------------
 def destroy(insight):
@@ -177,35 +261,12 @@ Idea:
 
 Destroy this idea.
 
-- Identify the biggest flaw
+- Identify fatal flaw
 - Show how it breaks
-- Explain how to falsify it
+- Explain falsification
 
 Be decisive.
 """, 500)
-
-
-# -----------------------
-# 🪓 ELIMINATION (NEW)
-# -----------------------
-def eliminate(ideas_text):
-    return chat(f"""
-Goal:
-{GOAL}
-
-Ideas:
-{ideas_text}
-
-Choose ONE idea to eliminate permanently.
-
-- Pick the weakest
-- Explain why it fundamentally fails
-
-Return:
-
-Eliminated Idea:
-Reason:
-""", 400)
 
 
 # -----------------------
@@ -222,7 +283,7 @@ Original Idea:
 Critique:
 {critique}
 
-Improve the idea into a stronger version.
+Strengthen the idea.
 """, 500)
 
 
@@ -237,7 +298,7 @@ Goal:
 Idea:
 {insight}
 
-Create a surprising alternative variation.
+Create a surprising variation.
 """, 400)
 
 
@@ -252,7 +313,7 @@ Goal:
 Idea:
 {insight}
 
-Turn into a testable hypothesis.
+Make it testable.
 
 Include:
 - prediction
@@ -261,7 +322,7 @@ Include:
 
 
 # -----------------------
-# 📊 SCORING
+# 📊 SCORE
 # -----------------------
 def score(insight):
     return chat(f"""
@@ -280,24 +341,23 @@ Idea:
 
 
 # -----------------------
-# 🏆 SELECTION
+# 🏆 DOMINANCE
 # -----------------------
-def select_best(current, new):
+def enforce_dominance(current, new):
     return chat(f"""
 Goal:
 {GOAL}
 
-Current Best:
+Current Dominant:
 {current}
 
-New Idea:
+Challenger:
 {new}
 
-Only ONE survives.
+ONLY ONE survives.
 
-- Be ruthless
-- Choose stronger idea
-- Reject the other
+- No compromise
+- No blending
 
 Return ONLY the winner.
 """, 300)
@@ -311,19 +371,22 @@ def final_report():
 Goal:
 {GOAL}
 
-All Steps:
+Steps:
 {memory}
 
-Best Idea:
-{BEST_IDEA}
+Constraints:
+- Respect eliminations (no revival)
+- Identify dominant idea
+- Show unresolved conflicts
 
-Create a breakthrough synthesis.
+Produce:
 
-Include:
-- competing ideas
-- eliminations
-- evolution
-- final dominant theory
+1. Competing ideas
+2. Eliminated ideas
+3. Debate highlights
+4. Dialogue insights
+5. Dominant theory (clear winner)
+6. Final integrated model (based on dominance only)
 """, 1500)
 
 
@@ -369,9 +432,17 @@ def run_agent_stream(goal, max_steps=7):
         divergence = divergent_ideas(insight)
         yield f"event: divergence\ndata: {safe(divergence)}\n\n"
 
+        # ⚔️ DEBATE
+        debate_result = debate(divergence)
+        yield f"event: debate\ndata: {safe(debate_result)}\n\n"
+
         # 🪓 ELIMINATION
         eliminated = eliminate(divergence)
         yield f"event: eliminated\ndata: {safe(eliminated)}\n\n"
+
+        # 🧠 DIALOGUE
+        dialogue_result = dialogue(divergence)
+        yield f"event: dialogue\ndata: {safe(dialogue_result)}\n\n"
 
         # 💀 DESTRUCTION
         critique = destroy(insight)
@@ -393,11 +464,11 @@ def run_agent_stream(goal, max_steps=7):
         scoring = score(refined)
         yield f"event: score\ndata: {safe(scoring)}\n\n"
 
-        # 🏆 SURVIVAL
+        # 🏆 DOMINANCE
         if BEST_IDEA is None:
             BEST_IDEA = refined
         else:
-            BEST_IDEA = select_best(BEST_IDEA, refined)
+            BEST_IDEA = enforce_dominance(BEST_IDEA, refined)
 
         yield f"event: best\ndata: {safe(BEST_IDEA)}\n\n"
 
@@ -407,7 +478,9 @@ def run_agent_stream(goal, max_steps=7):
             "plan": plan,
             "insight": insight,
             "divergence": divergence,
+            "debate": debate_result,
             "eliminated": eliminated,
+            "dialogue": dialogue_result,
             "critique": critique,
             "refined": refined,
             "mutation": mutation,
@@ -417,11 +490,9 @@ def run_agent_stream(goal, max_steps=7):
         })
 
         save_memory()
-
         time.sleep(0.3)
 
-    # 🧠 FINAL
+    # FINAL OUTPUT
     final = final_report()
-
     yield f"event: final\ndata: {safe(final)}\n\n"
     yield f"event: done\ndata: complete\n\n"
