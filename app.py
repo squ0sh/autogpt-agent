@@ -1,6 +1,6 @@
 import os
 from flask import Flask, Response, request, render_template, send_from_directory
-from agent import run_agent, stop
+from agent import run_agent
 
 app = Flask(__name__)
 
